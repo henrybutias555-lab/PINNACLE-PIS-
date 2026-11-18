@@ -41,6 +41,31 @@ def ensure_schema(bind) -> None:
             conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{DB_SCHEMA}"'))
 
 
+def add_missing_columns(bind) -> list[str]:
+    """Add columns that exist in the models but not yet in the database (new optional
+    fields such as records.district). Never drops or changes existing columns."""
+    from sqlalchemy import inspect
+
+    added = []
+    insp = inspect(bind)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name, schema=table.schema):
+            continue
+        existing = {c["name"] for c in insp.get_columns(table.name, schema=table.schema)}
+        for column in table.columns:
+            if column.name in existing or not column.nullable:
+                continue
+            col_type = column.type.compile(dialect=bind.dialect)
+            full = f'"{table.schema}"."{table.name}"' if table.schema else f'"{table.name}"'
+            with bind.begin() as conn:
+                conn.execute(text(f'ALTER TABLE {full} ADD COLUMN "{column.name}" {col_type}'))
+            for index in table.indexes:  # e.g. the search index on records.district
+                if column.name in {c.name for c in index.columns}:
+                    index.create(bind, checkfirst=True)
+            added.append(f"{table.name}.{column.name}")
+    return added
+
+
 def safe_url(url: str) -> str:
     """The database URL with the password hidden, for error messages."""
     try:

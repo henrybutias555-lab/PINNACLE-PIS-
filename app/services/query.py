@@ -21,6 +21,7 @@ class RecordFilters:
     q: str | None = None
     category: str | None = None
     location: str | None = None
+    district: str | None = None
     city: str | None = None
     property_type: str | None = None
     purpose: str | None = None
@@ -40,6 +41,8 @@ class RecordFilters:
             parts.append(f"{self.property_type} property")
         if self.location:
             parts.append(f"in {self.location}")
+        if self.district:
+            parts.append(f"{'' if self.location else 'in '}{self.district}".strip())
         if self.city:
             parts.append(f"{'' if self.location else 'in '}{self.city}".strip())
         if self.purpose:
@@ -53,6 +56,7 @@ def filters_dep(
     q: str | None = Query(None, description="Free-text search"),
     category: str | None = Query(None, pattern="^(valuation|cost|housing)$"),
     location: str | None = None,
+    district: str | None = None,
     city: str | None = None,
     property_type: str | None = None,
     purpose: str | None = None,
@@ -64,8 +68,10 @@ def filters_dep(
     max_amount: float | None = None,
     report_id: int | None = None,
 ) -> RecordFilters:
-    return RecordFilters(q, category, location, city, property_type, purpose, tag, currency,
-                         date_from, date_to, min_amount, max_amount, report_id)
+    return RecordFilters(q=q, category=category, location=location, district=district, city=city,
+                         property_type=property_type, purpose=purpose, tag=tag, currency=currency,
+                         date_from=date_from, date_to=date_to, min_amount=min_amount, max_amount=max_amount,
+                         report_id=report_id)
 
 
 def _ilike(col, value: str):
@@ -77,6 +83,8 @@ def apply_filters(stmt: Select, f: RecordFilters) -> Select:
         stmt = stmt.where(Record.category == f.category)
     if f.location:
         stmt = stmt.where(or_(_ilike(Record.location, f.location), _ilike(Record.address, f.location)))
+    if f.district:
+        stmt = stmt.where(_ilike(Record.district, f.district))
     if f.city:
         stmt = stmt.where(_ilike(Record.city, f.city))
     if f.property_type:
@@ -100,7 +108,8 @@ def apply_filters(stmt: Select, f: RecordFilters) -> Select:
         for term in terms:
             stmt = stmt.where(or_(
                 _ilike(Record.title, term), _ilike(Record.address, term), _ilike(Record.location, term),
-                _ilike(Record.city, term), _ilike(Record.property_type, term), _ilike(Record.notes, term),
+                _ilike(Record.city, term), _ilike(Record.district, term), _ilike(Record.region, term),
+                _ilike(Record.property_type, term), _ilike(Record.notes, term),
                 _ilike(Record.client, term), _ilike(Record.method, term), _ilike(Record.purpose, term),
             ))
     if f.min_amount is not None or f.max_amount is not None:
