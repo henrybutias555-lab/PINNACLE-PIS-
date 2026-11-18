@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -15,7 +16,15 @@ log = logging.getLogger(__name__)
 
 
 def process_report(db: Session, report: Report) -> Report:
-    path = Path(report.stored_path)
+    # Work on a temporary copy: the original lives in the database.
+    suffix = Path(report.filename).suffix.lower()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"report{suffix}"
+        path.write_bytes(report.file_data or b"")
+        return _process(db, report, path)
+
+
+def _process(db: Session, report: Report, path: Path) -> Report:
     try:
         text = extract_text(path, report.file_type)
     except Exception as exc:  # unreadable file

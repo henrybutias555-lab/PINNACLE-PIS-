@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -40,7 +40,10 @@ class Report(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     filename: Mapped[str] = mapped_column(String(500))
-    stored_path: Mapped[str] = mapped_column(String(1000))
+    # The original file is kept in the database so it survives on serverless hosts
+    # (no persistent disk). Deferred so listing reports does not load file bytes.
+    file_data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
     file_type: Mapped[str] = mapped_column(String(20))
     report_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)

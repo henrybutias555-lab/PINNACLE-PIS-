@@ -30,7 +30,7 @@ Requires Python 3.10+.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env          # then edit: set PIS_SECRET_KEY, admin password, and optionally ANTHROPIC_API_KEY
 uvicorn app.main:app --reload --port 8000
 ```
@@ -45,6 +45,25 @@ python -m scripts.seed_demo --clear  # removes them again
 ```
 
 The interactive API documentation is at http://localhost:8000/docs.
+
+## Deploying on Vercel
+
+The repository is ready for Vercel: `api/index.py` is the serverless entry point and `vercel.json` sends every route to it.
+
+1. **Import the repo:** in Vercel choose *Add New → Project*, import this repository, and leave *Framework Preset* as **Other**. Set **Settings → Git → Production Branch** to `main`.
+2. **Add a database:** open *Storage → Create Database → Neon (Postgres)* and connect it to the project. This sets `DATABASE_URL` automatically. A database is required, because Vercel has no permanent disk.
+3. **Set environment variables:** under *Settings → Environment Variables* (Production), add:
+   - `PIS_SECRET_KEY`: a random string of 40+ characters (e.g. `python -c "import secrets; print(secrets.token_urlsafe(48))"`)
+   - `PIS_ADMIN_EMAIL` and `PIS_ADMIN_PASSWORD`: the first admin login
+   - `ANTHROPIC_API_KEY` (optional): enables Claude extraction and commentary
+4. **Redeploy:** go to *Deployments → ⋯ → Redeploy*, open the site and sign in.
+
+Until steps 2–3 are done the site shows a "setup required" page listing what is missing, rather than running insecurely.
+
+Limits on Vercel:
+- Each uploaded file can be at most about 4.4 MB (Vercel's request size limit). Split or compress larger PDFs.
+- Extraction runs during the upload request, with a 300-second time limit.
+- Originals are stored in the database.
 
 ## AI configuration
 
@@ -64,12 +83,11 @@ Without a key, scanned documents need OCR. Install Tesseract plus `pip install p
 | Variable | Default | Purpose |
 |---|---|---|
 | `PIS_SECRET_KEY` | insecure dev key | Signs login tokens. **Set a long random value in production.** |
-| `PIS_DATABASE_URL` | `sqlite:///./data/pis.db` | Any SQLAlchemy URL, e.g. PostgreSQL for production. |
-| `PIS_UPLOAD_DIR` | `./data/uploads` | Where original reports are stored. |
+| `PIS_DATABASE_URL` / `DATABASE_URL` | `sqlite:///./data/pis.db` | Database URL. `postgres://` URLs (Neon, Vercel) are accepted as-is. |
 | `PIS_DEFAULT_CURRENCY` | `GHS` | Used when a report states no currency. |
 | `PIS_ADMIN_EMAIL` / `PIS_ADMIN_PASSWORD` | see `.env.example` | First admin account, created only when there are no users. |
 | `PIS_TOKEN_MINUTES` | `480` | Session length. |
-| `PIS_MAX_UPLOAD_MB` | `40` | Per-file upload limit. |
+| `PIS_MAX_UPLOAD_MB` | `40` (`4.4` on Vercel) | Per-file upload limit. |
 | `ANTHROPIC_API_KEY` | — | Enables Claude. |
 | `PIS_CLAUDE_MODEL` | `claude-opus-5-5` | Claude model. |
 
@@ -79,7 +97,7 @@ Statistics only mix records in the same currency. The dominant currency in the f
 
 ```
 app/
-  main.py              FastAPI app, startup (DB tables, first admin)
+  main.py              FastAPI app, startup (DB tables, first admin), deployment guard
   config.py            settings from environment / .env
   models.py            User, Report, Record, ActivityLog
   auth.py              JWT auth, role checks, activity logging
@@ -93,6 +111,7 @@ app/
     query.py           shared search filters
     export.py          Word / CSV evidence tables and commentary
   static/              single-page web UI (no build step; Chart.js bundled locally)
+api/index.py           Vercel serverless entry point (with vercel.json)
 scripts/seed_demo.py   demo data
 tests/                 pytest suite
 ```
@@ -107,8 +126,8 @@ pytest -q
 
 - Run behind HTTPS (e.g. nginx or Caddy) and set a strong `PIS_SECRET_KEY`.
 - Use PostgreSQL for multi-user production (`PIS_DATABASE_URL=postgresql+psycopg://...`). Schema changes after go-live should go through migrations (Alembic).
-- Back up the database and the upload directory together.
-- Background extraction runs in-process. For heavy bulk ingestion, move it to a task queue (e.g. Celery or RQ).
+- Back up the database regularly (it also holds the original uploaded reports).
+- Locally, extraction runs in the background in-process; on Vercel it runs during the upload request. For heavy bulk ingestion, move it to a task queue (e.g. Celery or RQ).
 
 ## Phase 2 (from the PRD, not yet built)
 

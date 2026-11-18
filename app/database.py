@@ -13,13 +13,14 @@ class Base(DeclarativeBase):
 
 
 def _make_engine(url: str):
-    kwargs = {}
     if url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
         db_path = url.replace("sqlite:///", "", 1)
         if db_path and db_path != ":memory:":
             Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    return create_engine(url, **kwargs)
+        return create_engine(url, connect_args={"check_same_thread": False})
+    # Serverless instances are frozen between requests; keep the pool small and
+    # check connections before use so stale ones are replaced.
+    return create_engine(url, pool_pre_ping=True, pool_size=2, max_overflow=3, pool_recycle=300)
 
 
 engine = _make_engine(settings.database_url)

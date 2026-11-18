@@ -117,6 +117,9 @@ function startApp() {
   pill.textContent = ai ? "AI: Claude connected" : "AI: offline (rule-based)";
   pill.className = "pill " + (ai ? "ok" : "warn");
   $$("[data-min-role]").forEach((el) => el.classList.toggle("hidden", !can(el.dataset.minRole)));
+  if (state.health && state.health.max_upload_mb) {
+    $("#upload-hint").textContent = `PDF, Word (.docx), text or scanned images — single or bulk · up to ${state.health.max_upload_mb} MB per file`;
+  }
   loadFacets();
   route();
 }

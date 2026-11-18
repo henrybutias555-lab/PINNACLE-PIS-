@@ -231,3 +231,22 @@ def test_extraction_schema_is_strict():
             for v in node:
                 walk(v)
     walk(EXTRACTION_SCHEMA)
+
+
+def test_vercel_setup_guard(client, monkeypatch):
+    """On Vercel, insecure defaults block the app with a setup page instead of running."""
+    from app import config
+
+    monkeypatch.setattr(config, "ON_VERCEL", True)
+    monkeypatch.setattr(config.settings, "secret_key", config.DEFAULT_SECRET)
+    monkeypatch.setattr(config.settings, "admin_password", config.DEFAULT_ADMIN_PASSWORD)
+    monkeypatch.setattr(config.settings, "database_url", "sqlite:////tmp/pis.db")
+    r = client.get("/")
+    assert r.status_code == 503 and "setup required" in r.text
+    assert len(r.text.split("<li>")) == 4
+    assert client.get("/api/health").status_code == 503
+
+    monkeypatch.setattr(config.settings, "secret_key", "x" * 40)
+    monkeypatch.setattr(config.settings, "admin_password", "A-strong-password-1")
+    monkeypatch.setattr(config.settings, "database_url", "postgresql+psycopg://u@h/db")
+    assert config.settings.deployment_problems() == []

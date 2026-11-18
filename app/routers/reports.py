@@ -1,12 +1,13 @@
 """Report ingestion: upload, AI extraction, review and confirmation."""
 from __future__ import annotations
 
-import uuid
+import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -47,28 +48,27 @@ async def upload(
     user: User = Depends(require_role("junior")),
     db: Session = Depends(get_db),
 ):
-    """Upload one or many reports. Extraction runs in the background unless ``sync=true``."""
-    settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    """Upload one or many reports. Extraction runs in the background unless ``sync=true``
+    (always synchronous on serverless hosts such as Vercel)."""
     created: list[Report] = []
-    limit = settings.max_upload_mb * 1024 * 1024
+    limit = int(settings.max_upload_mb * 1024 * 1024)
     for f in files:
         ftype = file_type_for(f.filename or "")
         if ftype is None:
             raise HTTPException(415, f"Unsupported file type: {f.filename}. Use PDF, DOCX, TXT or an image.")
         data = await f.read()
         if len(data) > limit:
-            raise HTTPException(413, f"{f.filename} exceeds the {settings.max_upload_mb} MB limit")
+            raise HTTPException(413, f"{f.filename} exceeds the {settings.max_upload_mb:g} MB upload limit")
         safe_name = Path(f.filename).name
-        stored = settings.upload_dir / f"{uuid.uuid4().hex}{Path(safe_name).suffix.lower()}"
-        stored.write_bytes(data)
-        report = Report(filename=safe_name, stored_path=str(stored), file_type=ftype, uploaded_by_id=user.id)
+        report = Report(filename=safe_name, file_data=data, file_size=len(data), file_type=ftype,
+                        uploaded_by_id=user.id)
         db.add(report)
         db.commit()
         created.append(report)
         log_activity(db, user, "report_uploaded", safe_name, f"report_id={report.id}", request)
 
     for report in created:
-        if sync:
+        if sync or settings.sync_extraction:
             process_report(db, report)
         else:
             background.add_task(_process_in_background, report.id)
@@ -96,10 +96,13 @@ def get_report(report_id: int, _: User = Depends(get_current_user), db: Session 
 def download_file(report_id: int, request: Request, user: User = Depends(get_current_user),
                   db: Session = Depends(get_db)):
     report = db.get(Report, report_id)
-    if report is None or not Path(report.stored_path).exists():
+    if report is None or not report.file_data:
         raise HTTPException(404, "File not found")
     log_activity(db, user, "report_downloaded", report.filename, request=request)
-    return FileResponse(report.stored_path, filename=report.filename)
+    media = mimetypes.guess_type(report.filename)[0] or "application/octet-stream"
+    quoted = quote(report.filename)
+    return Response(report.file_data, media_type=media,
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"})
 
 
 @router.post("/{report_id}/reprocess", response_model=ReportOut)
@@ -163,7 +166,6 @@ def delete_report(report_id: int, request: Request, user: User = Depends(require
         raise HTTPException(404, "Report not found")
     for rec in list(report.records):
         db.delete(rec)
-    Path(report.stored_path).unlink(missing_ok=True)
     db.delete(report)
     db.commit()
     log_activity(db, user, "report_deleted", report.filename, request=request)

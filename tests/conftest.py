@@ -3,7 +3,7 @@ import tempfile
 from pathlib import Path
 
 _tmp = Path(tempfile.mkdtemp(prefix="pis-test-"))
-os.environ["PIS_DATABASE_URL"] = f"sqlite:///{_tmp / 'test.db'}"
+os.environ["PIS_DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_tmp / 'test.db'}"
 os.environ["PIS_UPLOAD_DIR"] = str(_tmp / "uploads")
 os.environ["PIS_ADMIN_EMAIL"] = "admin@test.local"
 os.environ["PIS_ADMIN_PASSWORD"] = "AdminPass123"
@@ -18,6 +18,9 @@ from app.main import app  # noqa: E402
 
 @pytest.fixture(scope="session")
 def client():
+    # Start from an empty schema (matters when TEST_DATABASE_URL points at a reused Postgres DB).
+    from app.database import Base, engine
+    Base.metadata.drop_all(engine)
     with TestClient(app) as c:
         yield c
 
