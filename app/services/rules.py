@@ -40,6 +40,17 @@ CATEGORY_KEYWORDS = {
 }
 
 CURRENCY = r"(?:GH[S¢₵]|GHC|₵|USD|US\$|\$|NGN|₦|GBP|£|EUR|€)"
+# Currency written before an amount (case-insensitive: GH¢, Gh¢, GHS, GH₵, GHC, ₵, ¢, US$, USD, $ ...)
+_CUR_BEFORE = r"(?:gh\s?[s¢₵c]|ghana\s+cedis?|₵|¢|us\s?\$|usd|\$|ngn|₦|gbp|£|eur|€)"
+# ... or after it ("2,300,000.00 Ghana Cedis", "180,000 US Dollars")
+_CUR_AFTER = r"(?:ghana\s+cedis|cedis|gh\s?[s¢₵c]\b|us\s+dollars|u\.?s\.?\s+dollars|dollars|usd\b)"
+_NUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
+_SCALE = r"(?:million|mn|m|bn|billion|k)\b"
+_MONEY_RE = re.compile(
+    rf"(?P<cur1>{_CUR_BEFORE})\s*(?P<n1>{_NUM})\s*(?P<s1>{_SCALE})?"
+    rf"|(?P<n2>{_NUM})\s*(?P<s2>{_SCALE})?\s*(?P<cur2>{_CUR_AFTER})", re.I)
+_PLAIN_NUM_RE = re.compile(rf"(?<![\d.,])(?P<n>{_NUM})\s*(?P<s>{_SCALE})?(?!\s*(?:st|nd|rd|th)\b)(?![\d.,%])", re.I)
+_MONTH_WORDS = r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*"
 AMOUNT = r"([0-9][0-9,]*(?:\.[0-9]+)?)\s*(million|m|bn|billion|k)?"
 
 _MONTHS = "January February March April May June July August September October November December".split()
@@ -61,7 +72,11 @@ def _num(raw: str, scale: str | None = None) -> float | None:
 
 
 def _currency_code(sym: str) -> str:
-    s = sym.upper()
+    s = re.sub(r"\s+", "", sym.upper())
+    if "CEDI" in s or s in ("¢", "GH¢", "GH₵", "GHS", "GHC"):
+        return "GHS"
+    if "DOLLAR" in s or s in ("US$",):
+        return "USD"
     if s in ("GHS", "GH¢", "GH₵", "GHC", "₵"):
         return "GHS"
     if s in ("USD", "US$", "$"):
@@ -142,12 +157,17 @@ def find_gps(text: str) -> str | None:
 
 
 def find_basis_of_value(text: str) -> str | None:
+    """The basis of value, as ONE basis (e.g. "Market Value"). A forced sale value is a
+    separate figure, so "Market Value and Forced Sale Value" gives "Market Value"."""
     labelled = _labelled(text, ["basis of value", "basis of valuation", "bases of value"])
-    if labelled:
-        return labelled[:160]
-    low = text.lower()
-    found = [b for b in BASES_OF_VALUE if b.lower() in low]
-    return " & ".join(found[:2]) or None
+    source = (labelled or text).lower()
+    hits = sorted((source.find(b.lower()), b) for b in BASES_OF_VALUE if b.lower() in source)
+    primary = [b for _, b in hits if b != "Forced Sale Value"]
+    if primary:
+        return primary[0]
+    if hits:
+        return hits[0][1]
+    return labelled[:160] if labelled else None
 
 
 def classify(text: str) -> str:
@@ -203,13 +223,41 @@ def _labelled(text: str, labels: list[str]) -> str | None:
     return None
 
 
+def _money_in(window: str, minimum: float = 100) -> tuple[float | None, str | None]:
+    """First amount in a short piece of text. Amounts written with a currency win; a bare
+    number is used only if it isn't a date, a year, a day ('1st') or too small to be money."""
+    m = _MONEY_RE.search(window)
+    if m:
+        if m.group("n1"):
+            return _num(m.group("n1"), m.group("s1")), _currency_code(m.group("cur1"))
+        return _num(m.group("n2"), m.group("s2")), _currency_code(m.group("cur2"))
+    for m in _PLAIN_NUM_RE.finditer(window):
+        raw = m.group("n")
+        value = _num(raw, m.group("s"))
+        before, after = window[max(0, m.start() - 12):m.start()].lower(), window[m.end():m.end() + 12].lower()
+        is_year = re.fullmatch(r"(19|20)\d\d", raw) is not None
+        near_month = re.search(_MONTH_WORDS + r"\W*$", before) or re.match(r"\W*" + _MONTH_WORDS, after)
+        if value is None or is_year or near_month or value < minimum or re.match(r"\s*(?:sq|m²|m2|acre|ha|%|years?|km)", after):
+            continue
+        return value, None
+    return None, None
+
+
 def _labelled_amount(text: str, labels: list[str]) -> tuple[float | None, str | None]:
+    """Amount stated after a label, looking to the end of the sentence / next line."""
     for label in labels:
-        m = re.search(rf"(?i){label}[^0-9\n]{{0,40}}?({CURRENCY})?\s*{AMOUNT}", text)
-        if m:
-            value = _num(m.group(2), m.group(3))
+        for m in re.finditer(rf"(?i)(?<![a-z]){label}(?![a-z])", text):
+            rest = text[m.end():]
+            line, _, following = rest.partition("\n")
+            stop = re.search(r"\.\s+[A-Z]", line)  # end of the sentence
+            value, cur = _money_in(line[:stop.start() + 1] if stop else line)
+            if value is None:
+                # "Market Value:" with the figure on the next line
+                nxt = following.split("\n", 1)[0]
+                if re.match(rf"\s*(?:{_CUR_BEFORE}|\d)", nxt, re.I):
+                    value, cur = _money_in(nxt)
             if value is not None:
-                return value, (_currency_code(m.group(1)) if m.group(1) else None)
+                return value, cur
     return None, None
 
 
@@ -253,8 +301,17 @@ def _size(text: str) -> float | None:
 
 
 def _first_currency(text: str) -> str | None:
-    m = re.search(CURRENCY, text)
-    return _currency_code(m.group(0)) if m else None
+    """The currency used most often for amounts in the text (an exchange-rate note such as
+    '$1 = GH¢12.5' does not make a cedi report a dollar one)."""
+    from collections import Counter
+
+    counts = Counter()
+    for m in _MONEY_RE.finditer(text):
+        cur = _currency_code(m.group("cur1") or m.group("cur2"))
+        n = m.group("n1") or m.group("n2")
+        if _num(n) and _num(n) >= 100:
+            counts[cur] += 1
+    return counts.most_common(1)[0][0] if counts else None
 
 
 def extract(text: str, default_currency: str = "GHS") -> dict:

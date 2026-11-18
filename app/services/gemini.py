@@ -15,7 +15,7 @@ from pathlib import Path
 
 from ..config import settings
 from .llm import (COMMENTARY_SYSTEM, EXTRACTION_SCHEMA, EXTRACTION_SYSTEM, MAX_TEXT_CHARS, AIError,
-                  clean_extraction)
+                  _with_mmda_list, clean_extraction)
 
 log = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ def extract_report(path: Path, file_type: str, text: str, default_currency: str)
         contents.append(f'<report filename="{path.name}">\n{text}\n</report>')
     contents.append("Extract the structured data from this report.")
 
-    raw = _call(EXTRACTION_SYSTEM.replace("{currency}", default_currency), contents,
+    raw = _call(_with_mmda_list(EXTRACTION_SYSTEM.replace("{currency}", default_currency)), contents,
                 max_tokens=16000, json_schema=GEMINI_SCHEMA)
     try:
         data = json.loads(raw)

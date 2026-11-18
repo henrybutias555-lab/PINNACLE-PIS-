@@ -599,7 +599,7 @@ Valuer: Kofi Mensah, MGhIS, Pinnacle Estate Surveyors"""
     assert r["gps_address"] == "GA-183-8164"
     assert r["client"] == "Example Bank Ltd" and r["purpose"] == "Mortgage"
     assert r["property_valued"].startswith("A 5-bedroom mansion")
-    assert r["basis_of_value"] == "Market Value and Forced Sale Value"
+    assert r["basis_of_value"] == "Market Value"  # one basis; the forced sale value is a separate figure
     assert "Special: Building completed" in r["assumptions"]
     assert r["valuer"].startswith("Kofi Mensah")
     assert rules.find_gps("digital address ga 039 5028") == "GA-039-5028"
@@ -791,8 +791,15 @@ def test_mmda_rejects_area_descriptions():
         assert places.normalise_mmda(bad) is None, bad
     assert places.normalise_mmda("accra metropolitan assembly") == "Accra Metropolitan"
     assert places.normalise_mmda("Nkoranza South Municipal") == "Nkoranza South Municipal"  # any real-looking assembly
-    assert places.normalise_mmda("Bosomtwe District") is None  # "X District" needs "Assembly" unless known
-    assert places.normalise_mmda("Bosomtwe District Assembly", said_assembly=True) == "Bosomtwe District"
+    assert places.normalise_mmda("Bosomtwe District") == "Bosomtwe District"  # one of the 261 official MMDAs
+    assert places.normalise_mmda("Abcdefg District") is None  # unknown "X District" needs "Assembly"
+    assert places.normalise_mmda("Abcdefg District Assembly", said_assembly=True) == "Abcdefg District"
+    assert len(places.ALL_MMDAS) == 261
+    assert places.normalise_mmda("Kumasi Metropolis") == "Kumasi Metropolitan"
+    assert places.normalise_mmda("Korle-Klottey Municipal Assembly") == "Korle Klottey Municipal"
+    assert places.normalise_mmda("Adenta Municipal") == "Adentan Municipal"
+    r = ex("Location: Santeo\nThe site is about 20km from the Central Business District of Accra.")
+    assert r["location"] == "Santeo" and r.get("district") is None
 
 
 def test_ai_mmda_answer_is_checked(client, admin, monkeypatch):
@@ -823,3 +830,22 @@ def test_startup_corrects_saved_non_assembly_mmda(client, admin):
     assert client.get(f"/api/records/{keep}", headers=admin).json()["district"] == "Korle Klottey Municipal"
     assert _fix_mmda_values() == 0  # nothing left to fix
     assert "mmda_corrected" in {a["action"] for a in client.get("/api/activity", headers=admin).json()}
+
+
+def test_money_amounts_and_currency():
+    from app.services import rules
+
+    head = "VALUATION REPORT\nExchange rate used: $1 = GH¢12.5\nBasis of value: Market Value and Forced Sale Value\n"
+    cases = [
+        ("Open Market Value as at 1st August 2023: GH¢2,300,000.00 (Two Million Three Hundred Thousand Ghana Cedis)", 2300000, None, "GHS"),
+        ("Market Value (2023): GHS 2,300,000", 2300000, None, "GHS"),
+        ("We are of the opinion that the market value of the property as at 1st August, 2023 is GH¢2,300,000.00", 2300000, None, "GHS"),
+        ("Market value: 2,300,000.00 Ghana Cedis", 2300000, None, "GHS"),
+        ("Market Value: GHS 2.3 million\nForced Sale Value: GHS 1.61 million", 2300000, 1610000, "GHS"),
+        ("Market Value:\nGH¢ 2,300,000.00\nForced Sale Value:\nGH¢ 1,610,000.00", 2300000, 1610000, "GHS"),
+        ("Market value: US$ 180,000 (equivalent GH¢2,250,000)", 180000, None, "USD"),
+    ]
+    for text, mv, fsv, cur in cases:
+        r = rules.extract(head + text)["records"][0]
+        assert (r.get("capital_value"), r.get("forced_sale_value"), r["currency"], r["basis_of_value"]) == (
+            mv, fsv, cur, "Market Value"), (text, r)

@@ -56,7 +56,9 @@ _RECORD_PROPS = {
     "valuation_basis": {"type": ["string", "null"], "enum": ["capital", "rental", "both", None]},
     "method": _STR,
     "property_valued": {"type": ["string", "null"], "description": "Short description of the property valued"},
-    "basis_of_value": {"type": ["string", "null"], "description": "e.g. Market Value, Forced Sale Value, Market Rent"},
+    "basis_of_value": {"type": ["string", "null"],
+                       "description": "ONE basis of value, e.g. 'Market Value' or 'Market Rent'. Never combine two "
+                                      "bases; a forced sale value goes in forced_sale_value as a number."},
     "valuer": {"type": ["string", "null"], "description": "Valuer identity: name, qualifications, firm"},
     "capital_value": _NUM, "annual_rent": _NUM, "yield_pct": _NUM,
     "value_per_sqm": _NUM, "rent_per_sqm": _NUM, "assumptions": _STR,
@@ -215,6 +217,12 @@ def _call(system: str, content: list, *, max_tokens: int, output_config: dict) -
     return text
 
 
+def _with_mmda_list(system: str) -> str:
+    from .places import ALL_MMDAS
+    return (system + "\n\nWhen you fill \"district\" (the MMDA), use exactly one of these official names, or null "
+            "if the report does not make it clear:\n" + "; ".join(ALL_MMDAS))
+
+
 def clean_extraction(data: dict) -> dict:
     """Drop empty values so the review form shows blanks instead of nulls, '' or 0."""
     for rec in data.get("records", []) or []:
@@ -286,7 +294,7 @@ def _claude_extract(path: Path, file_type: str, text: str, default_currency: str
     content.append({"type": "text", "text": "Extract the structured data from this report."})
 
     raw = _call(
-        EXTRACTION_SYSTEM.replace("{currency}", default_currency),
+        _with_mmda_list(EXTRACTION_SYSTEM.replace("{currency}", default_currency)),
         content,
         max_tokens=16000,
         output_config={"effort": "medium", "format": {"type": "json_schema", "schema": EXTRACTION_SCHEMA}},
