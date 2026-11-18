@@ -148,3 +148,8 @@ label.changed { color: var(--warn); }
 label.changed input, label.changed select, label.changed textarea { border-color: var(--brand-2); box-shadow: 0 0 0 1px var(--brand-2); }
 .was-hint { display: block; font-size: .75rem; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
 .changed-chip { display: inline-block; padding: 0 .35rem; border-radius: 4px; border: 1px solid var(--brand-2); color: var(--warn); font-size: .8em; }
+
+/* "New version available" bar */
+.update-bar { position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); z-index: 200; display: flex;
+  gap: .75rem; align-items: center; background: var(--surface); color: var(--text); border: 1px solid var(--brand);
+  border-radius: 10px; padding: .6rem .9rem; box-shadow: 0 6px 24px rgba(0,0,0,.25); max-width: calc(100vw - 32px); }

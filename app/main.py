@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .auth import hash_password
 from .config import settings
-from .database import ENGINE_ERROR, Base, SessionLocal, engine, ensure_schema, safe_url
+from .database import ENGINE_ERROR, Base, SessionLocal, add_missing_columns, engine, ensure_schema, safe_url
 from .models import User
 from .routers import auth_users, intelligence, records, reports
 
@@ -39,6 +39,8 @@ def init_db() -> None:
             return
         ensure_schema(engine)
         Base.metadata.create_all(engine)
+        for column in add_missing_columns(engine):
+            log.info("Database upgraded: added column %s", column)
         with SessionLocal() as db:
             if (db.scalar(select(func.count()).select_from(User)) or 0) == 0:
                 db.add(User(email=settings.admin_email.lower(), full_name="System Administrator", role="admin",
@@ -120,6 +122,19 @@ def _guard_response(request: Request, problems: list[str]):
 
 
 @app.middleware("http")
+async def static_cache_headers(request: Request, call_next):
+    """Versioned assets (?v=...) never change, so browsers may keep them; anything
+    else under /static must be re-checked every time so an update shows at once."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        if "v=" in request.url.query:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@app.middleware("http")
 async def deployment_guard(request: Request, call_next):
     if request.url.path == "/healthz":  # liveness check for the host; never blocked
         return await call_next(request)
@@ -154,7 +169,7 @@ def health():
     return {"status": "ok", "ai_enabled": settings.ai_enabled,
             "ai_provider": settings.ai_provider, "model": settings.ai_model,
             "default_currency": settings.default_currency, "max_upload_mb": settings.max_upload_mb,
-            "build": BUILD}
+            "build": BUILD, "asset_version": ASSET_VERSION}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -165,6 +180,7 @@ def index():
     # Version the asset URLs so browsers fetch new CSS/JS after every deploy,
     # and never cache the page itself.
     page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    for asset in ("/static/styles.css", "/static/app.js"):
+    page = page.replace('<meta name="viewport"', f'<meta name="pis-version" content="{ASSET_VERSION}">\n  <meta name="viewport"', 1)
+    for asset in ("/static/styles.css", "/static/app.js", "/static/vendor/chart.umd.js"):
         page = page.replace(f'"{asset}"', f'"{asset}?v={ASSET_VERSION}"')
     return HTMLResponse(page, headers={"Cache-Control": "no-cache"})

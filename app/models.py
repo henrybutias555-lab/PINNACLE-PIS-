@@ -73,6 +73,7 @@ class Record(Base):
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     location: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)  # area / suburb
+    district: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)  # MMDA
     city: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     region: Mapped[str | None] = mapped_column(String(120), nullable=True)
     property_type: Mapped[str | None] = mapped_column(String(60), nullable=True, index=True)

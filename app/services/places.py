@@ -52,7 +52,7 @@ _CITY_INDEX = sorted(CITIES, key=len, reverse=True)
 
 
 def _has(name: str, text: str) -> re.Match | None:
-    return re.search(rf"(?<![A-Za-z]){re.escape(name)}(?![A-Za-z])", text, re.I)
+    return re.search(rf"(?<![A-Za-z0-9]){re.escape(name)}(?![A-Za-z0-9])", text, re.I)
 
 
 def find_city(text: str) -> str | None:
@@ -101,8 +101,8 @@ def clean_location(location: str, city: str | None) -> str:
 
 
 def resolve(location: str | None, address: str | None, city: str | None, region: str | None,
-            text: str) -> dict:
-    """Best guess for location / city / region from labelled fields plus the full text."""
+            text: str, district: str | None = None) -> dict:
+    """Best guess for location / district (MMDA) / city / region from labelled fields plus the full text."""
     fields = " , ".join(x for x in (location, address) if x)
     city = city or find_city(fields)
     area = find_area(fields) or (None if location else find_area(text[:6000]))
@@ -117,4 +117,109 @@ def resolve(location: str | None, address: str | None, city: str | None, region:
     region = region or find_region(fields) or find_region(text[:6000]) or (CITIES.get(city) if city else None)
     if region:
         region = re.sub(r"\s+Region$", "", region.strip(), flags=re.I)
-    return {"location": location, "city": city, "region": region}
+    district = district or find_mmda(fields) or find_mmda(text[:8000]) or mmda_for(location, city, fields)
+    if district:
+        district = re.sub(r"\s+Assembly$", "", district.strip(), flags=re.I)
+    return {"location": location, "district": district, "city": city, "region": region}
+
+
+# ------------------------------------------------------------------ MMDAs
+# Metropolitan, Municipal and District Assemblies. Names are stored without the
+# word "Assembly", e.g. "Adentan Municipal".
+
+GREATER_ACCRA_MMDAS = [
+    "Accra Metropolitan", "Tema Metropolitan", "Ablekuma Central Municipal", "Ablekuma North Municipal",
+    "Ablekuma West Municipal", "Adentan Municipal", "Ashaiman Municipal", "Ayawaso Central Municipal",
+    "Ayawaso East Municipal", "Ayawaso North Municipal", "Ayawaso West Municipal", "Ga Central Municipal",
+    "Ga East Municipal", "Ga North Municipal", "Ga South Municipal", "Ga West Municipal",
+    "Korle Klottey Municipal", "Kpone-Katamanso Municipal", "Krowor Municipal", "La Dade-Kotopon Municipal",
+    "La Nkwantanang-Madina Municipal", "Ledzokuku Municipal", "Okaikwei North Municipal", "Tema West Municipal",
+    "Weija-Gbawe Municipal", "Ada East District", "Ada West District", "Ningo-Prampram District",
+    "Shai-Osudoku District",
+]
+
+# Neighbourhood / town -> MMDA. Only well-established cases are listed; anything
+# else is left blank for the surveyor (or the AI) to fill. Extend as needed.
+AREA_MMDA: dict[str, str | None] = {
+    # Greater Accra
+    "Osu": "Korle Klottey Municipal", "Adabraka": "Korle Klottey Municipal", "Asylum Down": "Korle Klottey Municipal",
+    "Jamestown": "Accra Metropolitan", "Ussher Town": "Accra Metropolitan", "Korle Bu": "Accra Metropolitan",
+    "Labone": "La Dade-Kotopon Municipal", "La": "La Dade-Kotopon Municipal", "Labadi": "La Dade-Kotopon Municipal",
+    "Cantonments": "La Dade-Kotopon Municipal", "Burma Camp": "La Dade-Kotopon Municipal",
+    "Dzorwulu": "Ayawaso West Municipal", "Abelemkpe": "Ayawaso West Municipal", "Roman Ridge": "Ayawaso West Municipal",
+    "East Legon": "Ayawaso West Municipal",
+    # Look-alike names that are NOT part of the area above: deliberately left blank.
+    "East Legon Hills": None, "West Legon": None, "North Legon": None, "Legon": None, "Santeo": None,
+    "Trasacco": None, "Oyarifa": None, "Spintex": None, "Lashibi": None,
+    "Nima": "Ayawaso East Municipal", "Kanda": "Ayawaso East Municipal", "Maamobi": "Ayawaso North Municipal",
+    "Kotobabi": "Ayawaso Central Municipal", "Alajo": "Ayawaso Central Municipal",
+    "Madina": "La Nkwantanang-Madina Municipal", "Adenta": "Adentan Municipal",
+    "Haatso": "Ga East Municipal", "Dome": "Ga East Municipal", "Kwabenya": "Ga East Municipal",
+    "Abokobi": "Ga East Municipal", "Taifa": "Ga East Municipal", "Ashongman": "Ga East Municipal",
+    "Ofankor": "Ga North Municipal", "Amasaman": "Ga West Municipal",
+    "Achimota": "Okaikwei North Municipal", "Tesano": "Okaikwei North Municipal",
+    "Dansoman": "Ablekuma West Municipal",
+    "Weija": "Weija-Gbawe Municipal", "Gbawe": "Weija-Gbawe Municipal", "McCarthy Hill": "Weija-Gbawe Municipal",
+    "Teshie": "Ledzokuku Municipal", "Nungua": "Krowor Municipal", "Sakumono": "Tema West Municipal",
+    "Ashaiman": "Ashaiman Municipal", "Kpone": "Kpone-Katamanso Municipal",
+    "Prampram": "Ningo-Prampram District", "Dodowa": "Shai-Osudoku District", "Ada": "Ada East District",
+    # Kumasi area
+    "Adum": "Kumasi Metropolitan", "Bantama": "Kumasi Metropolitan", "Nhyiaeso": "Kumasi Metropolitan",
+    "Ahodwo": "Kumasi Metropolitan", "Danyame": "Kumasi Metropolitan",
+    "Asokwa": "Asokwa Municipal", "Kwadaso": "Kwadaso Municipal",
+    "Ayeduase": "Oforikrom Municipal", "Bomso": "Oforikrom Municipal", "Kentinkrono": "Oforikrom Municipal",
+    "Asokore Mampong": "Asokore Mampong Municipal",
+}
+AREA_MMDA.update({f"Community {n}": "Tema Metropolitan" for n in range(1, 13)})
+
+# City / town -> MMDA, where the town has its own assembly. (Accra has many, so none.)
+CITY_MMDA = {
+    "Tema": None, "Kumasi": None,  # several assemblies: decided by neighbourhood
+    "Ashaiman": "Ashaiman Municipal", "Tamale": "Tamale Metropolitan", "Cape Coast": "Cape Coast Metropolitan",
+    "Takoradi": "Sekondi-Takoradi Metropolitan", "Sekondi": "Sekondi-Takoradi Metropolitan",
+    "Koforidua": "New Juaben South Municipal", "Ho": "Ho Municipal", "Sunyani": "Sunyani Municipal",
+    "Wa": "Wa Municipal", "Bolgatanga": "Bolgatanga Municipal", "Techiman": "Techiman Municipal",
+    "Obuasi": "Obuasi Municipal", "Winneba": "Effutu Municipal", "Tarkwa": "Tarkwa-Nsuaem Municipal",
+    "Kasoa": "Awutu Senya East Municipal", "Ejisu": "Ejisu Municipal", "Hohoe": "Hohoe Municipal",
+    "Nkawkaw": "Kwahu West Municipal", "Akosombo": "Asuogyaman District", "Dodowa": "Shai-Osudoku District",
+    "Prampram": "Ningo-Prampram District", "Ada": "Ada East District",
+}
+
+_ASSEMBLY = re.compile(
+    r"([A-Z][A-Za-z'’]+(?:[ -](?:[A-Z][A-Za-z'’]+|and))*?)\s+(Metropolitan|Municipal|District)"
+    r"(?:\s+(?:Chief\s+Executive|Assembly|Council))?", re.M)
+_NOT_PLACE = {"The", "This", "A", "An", "Of", "In", "Within", "Under", "Its", "Our", "And", "Local", "Government"}
+
+
+def find_mmda(text: str) -> str | None:
+    """An MMDA named in the text, e.g. '... within the Adentan Municipal Assembly'."""
+    for m in _ASSEMBLY.finditer(text):
+        words = m.group(1).split()
+        while words and words[0] in _NOT_PLACE:
+            words = words[1:]
+        if not words or len(words) > 5:
+            continue
+        name = " ".join(words)
+        if name.lower() in ("the", "local"):
+            continue
+        return f"{name} {m.group(2).title()}"
+    return None
+
+
+def mmda_for(location: str | None, city: str | None, fields: str) -> str | None:
+    """MMDA from a known neighbourhood or town."""
+    hits = []
+    for area, mmda in AREA_MMDA.items():
+        if area in ("La", "Ada"):
+            if not re.search(rf"(?:^|,|\s){area}(?:,|\s*$)", fields or "", re.M):
+                continue
+        m = _has(area, fields or "")
+        if m:
+            hits.append((m.start(), -len(area), mmda))
+    if hits:
+        return sorted(hits)[0][2]  # may be None: a known area whose assembly isn't listed
+    return CITY_MMDA.get(city or "")
+
+# Names offered in the District (MMDA) drop-down: Greater Accra in full, plus the
+# assemblies referenced above. Surveyors can still type any other MMDA.
+ALL_MMDAS = sorted(set(GREATER_ACCRA_MMDAS) | {m for m in AREA_MMDA.values() if m} | {m for m in CITY_MMDA.values() if m})

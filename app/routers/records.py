@@ -10,6 +10,7 @@ from ..auth import get_current_user, log_activity, require_role
 from ..database import get_db
 from ..models import Record, User
 from ..schemas import RecordIn, RecordOut
+from ..services import places
 from ..services.query import RecordFilters, apply_filters, filters_dep
 
 router = APIRouter(prefix="/api/records", tags=["records"])
@@ -87,6 +88,7 @@ def facets(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return {
         "locations": distinct(Record.location),
         "cities": distinct(Record.city),
+        "districts": sorted(set(distinct(Record.district)) | set(places.ALL_MMDAS)),
         "property_types": distinct(Record.property_type),
         "purposes": distinct(Record.purpose),
         "currencies": distinct(Record.currency),

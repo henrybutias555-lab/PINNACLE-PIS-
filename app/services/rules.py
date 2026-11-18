@@ -189,14 +189,16 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
     record["title"] = _labelled(text, ["title", "subject", "re", "property"]) or None
     record["address"] = _labelled(text, ["property address", "address", "subject property", "site"])
     record["location"] = _labelled(text, ["location", "area", "neighbourhood", "neighborhood", "suburb", "district"])
-    record["city"] = _labelled(text, ["city", "town", "municipality"])
+    record["district"] = _labelled(text, ["mmda", "district assembly", "municipal assembly", "metropolitan assembly",
+                                          "assembly", "local authority", "district"])
+    record["city"] = _labelled(text, ["city", "town"])
     record["region"] = _labelled(text, ["region", "state", "province"])
     record["client"] = _labelled(text, ["client", "prepared for", "instructed by"])
     record["purpose"] = _labelled(text, ["purpose of valuation", "purpose", "basis of instruction"])
     if record.get("location") and re.match(r"\s*[\d.,]+", record["location"]):
         record["location"] = None  # e.g. "Area: 0.25 acres" is a size, not a place
     place = places.resolve(record.get("location"), record.get("address"), record.get("city"),
-                           record.get("region"), text)
+                           record.get("region"), text, record.get("district"))
     record.update({k: v for k, v in place.items() if v})
     record["property_type"] = property_type(text)
     tags = property_tags(text)

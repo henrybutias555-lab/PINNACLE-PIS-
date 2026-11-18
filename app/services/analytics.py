@@ -61,6 +61,7 @@ def summary(records: list[Record]) -> dict:
         "by_category": dict(Counter(r.category for r in records)),
         "by_property_type": dict(Counter((r.property_type or "unspecified") for r in records).most_common(10)),
         "top_locations": dict(Counter((r.location or r.city or "unspecified") for r in records).most_common(10)),
+        "top_districts": dict(Counter((r.district or "unspecified") for r in records).most_common(10)),
         "currency": currency,
         "other_currencies_excluded": {c: n for c, n in currencies.items() if c != currency},
         "date_range": [dates[0].isoformat(), dates[-1].isoformat()] if dates else None,

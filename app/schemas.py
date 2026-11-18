@@ -65,6 +65,7 @@ class RecordBase(BaseModel):
     title: str | None = None
     address: str | None = None
     location: str | None = None
+    district: str | None = None
     city: str | None = None
     region: str | None = None
     property_type: str | None = None
@@ -156,6 +157,7 @@ class ConfirmIn(BaseModel):
 
 class CommentaryIn(BaseModel):
     location: str | None = None
+    district: str | None = None
     city: str | None = None
     property_type: str | None = None
     category: Category | None = None

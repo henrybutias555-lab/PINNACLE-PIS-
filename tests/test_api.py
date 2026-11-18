@@ -452,7 +452,9 @@ def test_evidence_excel_export(client, admin):
     assert rows[0][:3] == ("Ref", "Date", "Address")
     data = rows[1:]
     assert len(data) == 3, data
-    assert all(isinstance(x[7], (int, float)) for x in data)  # capital values are numbers, not text
+    col = rows[0].index("Capital value")
+    assert "District (MMDA)" in rows[0]
+    assert all(isinstance(x[col], (int, float)) for x in data)  # capital values are numbers, not text
 
 
 def test_export_all_categories(client, admin):
@@ -521,3 +523,57 @@ def test_reextract_approved_report_and_update(client, admin, monkeypatch):
     r = client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin)
     assert r.status_code == 422
     assert client.get(f"/api/reports/{rep['id']}", headers=admin).json()["status"] == "confirmed"
+
+
+def test_mmda_detection():
+    from app.services import places, rules
+
+    assert places.find_mmda("The property lies within the Adentan Municipal Assembly.") == "Adentan Municipal"
+    assert places.find_mmda("under La Nkwantanang-Madina Municipal Assembly") == "La Nkwantanang-Madina Municipal"
+    assert places.find_mmda("Sekondi-Takoradi Metropolitan Assembly") == "Sekondi-Takoradi Metropolitan"
+    assert places.find_mmda("The Local Government Act") is None
+    r = places.resolve
+    assert r("Osu", None, None, None, "")["district"] == "Korle Klottey Municipal"
+    assert r("Madina", None, None, None, "")["district"] == "La Nkwantanang-Madina Municipal"
+    assert r(None, None, "Tamale", None, "")["district"] == "Tamale Metropolitan"
+    # Look-alikes stay blank rather than guess wrong
+    assert r("Santeo - East Legon Hills, Accra", None, None, None, "")["district"] is None
+    assert r("Community 25, Tema", None, None, None, "")["district"] is None
+    assert r("Community 4, Tema", None, None, None, "")["district"] == "Tema Metropolitan"
+    # An assembly named in the report wins
+    rec = rules.extract(GHANA_REPORT + "\nThe site falls within the Adentan Municipal Assembly.")["records"][0]
+    assert rec["district"] == "Adentan Municipal" and rec["city"] == "Accra"
+
+
+def test_district_field_filter_and_group(client, admin):
+    r = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Osu", "city": "Accra",
+                                                        "district": "Korle Klottey Municipal", "capital_value": 900000,
+                                                        "record_date": "2025-02-01"})
+    assert r.status_code == 201 and r.json()["district"] == "Korle Klottey Municipal"
+    assert client.get("/api/records?district=korle klottey", headers=admin).json()["total"] == 1
+    assert client.get("/api/records?q=Klottey", headers=admin).json()["total"] == 1
+    rows = client.get("/api/analytics/breakdown?group_by=district", headers=admin).json()["rows"]
+    assert "Korle Klottey Municipal" in {x["district"] for x in rows}
+    facets = client.get("/api/records/facets", headers=admin).json()
+    assert "Adentan Municipal" in facets["districts"] and "Ayawaso West Municipal" in facets["districts"]
+
+
+def test_add_missing_columns_upgrades_old_database(tmp_path):
+    """An existing database without the new column gets it added, keeping its data."""
+    from sqlalchemy import create_engine, inspect, text
+
+    from app.database import Base, add_missing_columns
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    Base.metadata.create_all(eng)
+    with eng.begin() as c:
+        c.execute(text("DROP INDEX ix_records_district"))
+        c.execute(text("ALTER TABLE records DROP COLUMN district"))
+        c.execute(text("INSERT INTO records (category, currency, location, created_at, updated_at) VALUES ('valuation', 'GHS', 'Osu', '2025-01-01', '2025-01-01')"))
+    assert "district" not in {c["name"] for c in inspect(eng).get_columns("records")}
+    assert add_missing_columns(eng) == ["records.district"]
+    assert "district" in {c["name"] for c in inspect(eng).get_columns("records")}
+    assert "ix_records_district" in {i["name"] for i in inspect(eng).get_indexes("records")}
+    with eng.connect() as c:
+        assert c.execute(text("SELECT location FROM records")).scalar() == "Osu"
+    assert add_missing_columns(eng) == []  # idempotent

@@ -13,18 +13,20 @@ from ..models import Record
 
 COLUMNS = {
     "valuation": [
-        ("Date", "record_date"), ("Address", "address"), ("Location", "location"), ("Type", "property_type"),
-        ("Size (m²)", "size_sqm"), ("Basis", "valuation_basis"), ("Capital value", "capital_value"),
+        ("Date", "record_date"), ("Address", "address"), ("Location", "location"), ("District (MMDA)", "district"),
+        ("Type", "property_type"), ("Size (m²)", "size_sqm"), ("Basis", "valuation_basis"), ("Capital value", "capital_value"),
         ("Value/m²", "value_per_sqm"), ("Annual rent", "annual_rent"), ("Yield %", "yield_pct"),
         ("Method", "method"), ("Currency", "currency"),
     ],
     "cost": [
-        ("Date", "record_date"), ("Project", "title"), ("Location", "location"), ("Type", "property_type"),
+        ("Date", "record_date"), ("Project", "title"), ("Location", "location"), ("District (MMDA)", "district"),
+        ("Type", "property_type"),
         ("GFA (m²)", "size_sqm"), ("Specification", "specification"), ("Total cost", "total_cost"),
         ("Cost/m²", "cost_per_sqm"), ("Currency", "currency"),
     ],
     "housing": [
-        ("Date", "record_date"), ("Area", "location"), ("City", "city"), ("Type", "property_type"),
+        ("Date", "record_date"), ("Area", "location"), ("District (MMDA)", "district"), ("City", "city"),
+        ("Type", "property_type"),
         ("Avg price", "avg_price"), ("Avg monthly rent", "avg_monthly_rent"), ("Supply (units)", "supply_units"),
         ("Demand", "demand_level"), ("Affordability", "affordability_ratio"), ("Currency", "currency"),
     ],
@@ -119,7 +121,7 @@ XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 RECORD_COLUMNS = [
     ("Ref", "id", None), ("Category", "category", None), ("Date", "record_date", "yyyy-mm-dd"),
     ("Title / project", "title", None), ("Address", "address", None), ("Location", "location", None),
-    ("City", "city", None), ("Region", "region", None), ("Property type", "property_type", None),
+    ("District (MMDA)", "district", None), ("City", "city", None), ("Region", "region", None), ("Property type", "property_type", None),
     ("Purpose", "purpose", None), ("Client", "client", None), ("Currency", "currency", None),
     ("Size / GFA (m²)", "size_sqm", "#,##0.00"), ("Basis", "valuation_basis", None), ("Method", "method", None),
     ("Capital value", "capital_value", "#,##0"), ("Value per m²", "value_per_sqm", "#,##0"),

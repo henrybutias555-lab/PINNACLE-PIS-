@@ -41,7 +41,10 @@ _BREAKDOWN = {
 }
 _RECORD_PROPS = {
     "category": {"type": "string", "enum": ["valuation", "cost", "housing"]},
-    "title": _STR, "address": _STR, "location": _STR, "city": _STR, "region": _STR,
+    "title": _STR, "address": _STR, "location": _STR,
+    "district": {"type": ["string", "null"],
+                 "description": "Ghana MMDA (Metropolitan/Municipal/District Assembly), e.g. 'Adentan Municipal'"},
+    "city": _STR, "region": _STR,
     "property_type": _STR, "purpose": _STR, "client": _STR,
     "record_date": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD"},
     "currency": {"type": "string", "description": "ISO currency code, e.g. GHS, USD"},
@@ -103,7 +106,10 @@ Rules:
 - Use null (or leave the field out) for anything not stated. Never invent or estimate figures that are not \
 in the document.
 - "location" is the neighbourhood / suburb (e.g. "East Legon Hills"); "city" is the city or town (e.g. "Accra"); \
-"region" is the administrative region without the word "Region" (e.g. "Greater Accra").
+"region" is the administrative region without the word "Region" (e.g. "Greater Accra"); \
+"district" is the Metropolitan, Municipal or District Assembly (MMDA) the property falls under, without the word \
+"Assembly" (e.g. "La Nkwantanang-Madina Municipal"). Give the MMDA only when the report states it or the location \
+makes it certain; otherwise leave it null.
 - property_type describes the subject as built: a house, mansion, villa or flats on a plot is "residential", \
 not "land". Use "land" only for bare / undeveloped land. Put the sub-type and bedroom count in tags \
 (e.g. "mansion", "5-bedroom").

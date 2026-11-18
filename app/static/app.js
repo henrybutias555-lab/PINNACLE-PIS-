@@ -1,6 +1,20 @@
 /* Pinnacle Intelligence System - single-page front end (no build step). */
 "use strict";
 
+/* Self-repair: a browser that kept an old copy of the page (from before versioned
+   assets) has no version tag. Reload it once, fetching a fresh page. */
+const PAGE_VERSION = document.querySelector('meta[name="pis-version"]')?.content || null;
+(() => {
+  let reloaded = null;
+  try { reloaded = sessionStorage.getItem("pis_reloaded"); } catch (_) { /* storage blocked */ }
+  if (!PAGE_VERSION && !reloaded) {
+    try { sessionStorage.setItem("pis_reloaded", "1"); } catch (_) {}
+    location.replace(`${location.pathname}?fresh=${Date.now()}${location.hash}`);
+    throw new Error("Reloading to get the latest version");
+  }
+  if (location.search.includes("fresh=")) history.replaceState(null, "", location.pathname + location.hash);
+})();
+
 const ROLE_LEVEL = { viewer: 0, junior: 1, senior: 2, admin: 3 };
 const ROLE_NAMES = { viewer: "Viewer", junior: "Junior Surveyor", senior: "Senior Surveyor", admin: "Admin" };
 const state = { token: null, user: null, health: null, recordsPage: 1, charts: {}, facets: null };
@@ -97,10 +111,26 @@ $("#pw-btn").addEventListener("click", () => {
   });
 });
 
+function checkForUpdate(health) {
+  if (!health || !health.asset_version || !PAGE_VERSION || health.asset_version === PAGE_VERSION) return;
+  if ($("#update-bar")) return;
+  const bar = document.createElement("div");
+  bar.id = "update-bar";
+  bar.className = "update-bar";
+  bar.innerHTML = 'PIS has been updated. <button class="btn small primary" type="button">Reload now</button>';
+  bar.querySelector("button").onclick = () => location.replace(`${location.pathname}?fresh=${Date.now()}${location.hash}`);
+  document.body.appendChild(bar);
+}
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState !== "visible") return;
+  try { checkForUpdate(await (await fetch("/api/health", { cache: "no-store" })).json()); } catch (_) { /* offline */ }
+});
+
 async function boot() {
   let token = null;
   try { token = sessionStorage.getItem("pis_token"); } catch (_) {}
   state.health = await api("/api/health").catch(() => null);
+  checkForUpdate(state.health);
   if (token) {
     state.token = token;
     try { state.user = await api("/api/auth/me"); return startApp(); } catch (_) { /* fallthrough */ }
@@ -144,6 +174,7 @@ async function loadFacets() {
   const fill = (id, arr) => { $(id).innerHTML = arr.map((v) => `<option value="${esc(v)}">`).join(""); };
   fill("#dl-locations", state.facets.locations);
   fill("#dl-cities", state.facets.cities);
+  fill("#dl-districts", state.facets.districts || []);
   fill("#dl-types", state.facets.property_types);
 }
 
@@ -152,6 +183,7 @@ function filterFormHTML(withSearch = true) {
     ${withSearch ? '<label>Search<input name="q" placeholder="address, client, notes…"></label>' : ""}
     <label>Category<select name="category"><option value="">All</option><option value="valuation">Valuation</option><option value="cost">Construction cost</option><option value="housing">Housing</option></select></label>
     <label>Location<input name="location" list="dl-locations"></label>
+    <label>District (MMDA)<input name="district" list="dl-districts"></label>
     <label>City<input name="city" list="dl-cities"></label>
     <label>Property type<input name="property_type" list="dl-types"></label>
     <label>Purpose<input name="purpose"></label>
@@ -259,7 +291,8 @@ async function loadReports() {
 
 /* Field definitions for the record editor */
 const COMMON_FIELDS = [
-  ["title", "Title / project"], ["address", "Address", "wide"], ["location", "Location / area"], ["city", "City"], ["region", "Region"],
+  ["title", "Title / project"], ["address", "Address", "wide"], ["location", "Location / area"],
+  ["district", "District (MMDA)", "mmda"], ["city", "City"], ["region", "Region"],
   ["property_type", "Property type"], ["purpose", "Purpose"], ["client", "Client"], ["record_date", "Date", "date"],
   ["currency", "Currency"], ["size_sqm", "Size / GFA (m²)", "num"],
 ];
@@ -275,6 +308,7 @@ const BREAKDOWN_KEYS = ["preliminaries", "substructure", "superstructure", "fini
 function fieldHTML([key, label, kind], rec) {
   const v = rec[key] ?? "";
   if (kind === "text") return `<label class="wide">${esc(label)}<textarea name="${key}" rows="2">${esc(v)}</textarea></label>`;
+  if (kind === "mmda") return `<label>${esc(label)}<input type="text" name="${key}" value="${esc(v)}" list="dl-districts" placeholder="e.g. Adentan Municipal"></label>`;
   const type = kind === "num" || kind === "int" ? "number" : kind === "date" ? "date" : "text";
   const step = kind === "num" ? ' step="any"' : "";
   return `<label class="${kind === "wide" ? "wide" : ""}">${esc(label)}<input type="${type}"${step} name="${key}" value="${esc(v)}" data-kind="${kind || ""}"></label>`;
@@ -452,7 +486,7 @@ async function loadRecords() {
   const d = await api("/api/records?" + qs({ ...f, page: state.recordsPage, page_size: 25 }));
   if (!d.items.length) { $("#records-table").innerHTML = '<p class="muted">No records match these filters.</p>'; $("#records-pager").innerHTML = ""; return; }
   $("#records-table").innerHTML = table(["Date", "Category", "Location", "Type", "Address / title", { t: "Size m²", num: true }, { t: "Key figure", num: true }, { t: "Rate / m²", num: true }, "Tags"],
-    d.items.map((r) => [esc(r.record_date || "—"), esc(r.category), esc([r.location, r.city].filter(Boolean).join(", ") || "—"), esc(r.property_type || "—"),
+    d.items.map((r) => [esc(r.record_date || "—"), esc(r.category), esc([r.location, r.district, r.city].filter(Boolean).join(", ") || "—"), esc(r.property_type || "—"),
       esc(r.address || r.title || "—"), { v: fmt(r.size_sqm), num: true }, { v: keyFigure(r), num: true }, { v: rateFigure(r), num: true }, (r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join("")]),
     { clickable: true });
   $$("#records-table tbody tr").forEach((tr) => tr.addEventListener("click", () => openRecord(d.items[tr.dataset.i])));
