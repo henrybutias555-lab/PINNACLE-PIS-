@@ -78,16 +78,33 @@ class Settings:
     admin_password: str = field(default_factory=lambda: os.getenv("PIS_ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD))
     token_minutes: int = field(default_factory=lambda: int(os.getenv("PIS_TOKEN_MINUTES", "480")))
     claude_model: str = field(default_factory=lambda: os.getenv("PIS_CLAUDE_MODEL", "claude-opus-5-5"))
+    gemini_model: str = field(default_factory=lambda: os.getenv("PIS_GEMINI_MODEL", "gemini-2.5-flash"))
     # Vercel functions reject request bodies over ~4.5 MB.
     max_upload_mb: float = field(default_factory=lambda: float(os.getenv("PIS_MAX_UPLOAD_MB", "4.4" if ON_VERCEL else "40")))
     # Background work is unreliable on serverless, so extract during the upload request there.
     sync_extraction: bool = field(default_factory=lambda: os.getenv("PIS_SYNC_EXTRACTION", "1" if ON_VERCEL else "0") == "1")
 
     @property
-    def ai_enabled(self) -> bool:
+    def ai_provider(self) -> str | None:
+        """'gemini' or 'claude': PIS_AI_PROVIDER if set, else whichever API key exists (Gemini first)."""
         if os.getenv("PIS_DISABLE_AI") == "1":
-            return False
-        return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
+            return None
+        has_gemini = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+        has_claude = bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
+        wanted = os.getenv("PIS_AI_PROVIDER", "").strip().lower()
+        if wanted == "gemini" and has_gemini:
+            return "gemini"
+        if wanted == "claude" and has_claude:
+            return "claude"
+        return "gemini" if has_gemini else "claude" if has_claude else None
+
+    @property
+    def ai_model(self) -> str | None:
+        return {"gemini": self.gemini_model, "claude": self.claude_model}.get(self.ai_provider or "")
+
+    @property
+    def ai_enabled(self) -> bool:
+        return self.ai_provider is not None
 
     def deployment_problems(self) -> list[str]:
         """Settings that must be fixed before a public deployment can safely run."""

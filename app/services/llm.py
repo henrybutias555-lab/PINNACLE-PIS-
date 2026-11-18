@@ -1,4 +1,4 @@
-"""Claude integration: document data extraction and market commentary.
+"""AI integration (Claude, with Gemini in services/gemini.py): extraction and commentary.
 
 Used only when an Anthropic credential is configured (see ``settings.ai_enabled``).
 Every call site has a non-AI fallback, so the system keeps working offline.
@@ -100,12 +100,17 @@ level (low / moderate / high), affordability ratios and housing stock notes.
 
 Rules:
 - Produce one record per distinct subject property, cost project or market area. Most reports have one.
-- Use null for anything not stated. Never invent or estimate figures that are not in the document.
+- Use null (or leave the field out) for anything not stated. Never invent or estimate figures that are not \
+in the document.
+- "location" is the neighbourhood / suburb (e.g. "East Legon Hills"); "city" is the city or town (e.g. "Accra"); \
+"region" is the administrative region without the word "Region" (e.g. "Greater Accra").
+- property_type describes the subject as built: a house, mansion, villa or flats on a plot is "residential", \
+not "land". Use "land" only for bare / undeveloped land. Put the sub-type and bedroom count in tags \
+(e.g. "mansion", "5-bedroom").
 - Convert sizes to square metres (1 sq ft = 0.092903 m²). Express rent as annual rent in annual_rent and as \
 monthly rent in avg_monthly_rent only for housing records.
 - Amounts are plain numbers (no symbols or commas); put the currency's ISO code in currency \
 (Ghana cedi = GHS). Default to {currency} if the report does not state one.
-- "location" is the neighbourhood / suburb / area (e.g. "East Legon"); "city" is the city or town (e.g. "Accra").
 - property_type is one of: residential, commercial, industrial, land, mixed-use, hospitality, other.
 - Add up to 6 short lowercase tags useful for search (e.g. "gated community", "mortgage valuation").
 """
@@ -156,7 +161,52 @@ def _call(system: str, content: list, *, max_tokens: int, output_config: dict) -
     return text
 
 
+def clean_extraction(data: dict) -> dict:
+    """Drop empty values so the review form shows blanks instead of nulls, '' or 0."""
+    for rec in data.get("records", []) or []:
+        if isinstance(rec.get("cost_breakdown"), dict):
+            rec["cost_breakdown"] = {k: v for k, v in rec["cost_breakdown"].items() if v not in (None, 0, "")} or None
+        if isinstance(rec.get("comparables"), list):
+            rec["comparables"] = [{k: v for k, v in c.items() if v not in (None, "")}
+                                  for c in rec["comparables"] if isinstance(c, dict) and any(c.values())] or None
+        for key in [k for k, v in rec.items() if v in (None, "", []) or (v == 0 and k != "category")]:
+            del rec[key]
+    return data
+
+
+def commentary_prompt(stats: dict, scope: str, tone: str) -> str:
+    length = "two short paragraphs" if tone == "concise" else "three to four paragraphs"
+    return (
+        f"Scope of the analysis: {scope}\n\n"
+        f"Statistics from the firm's database (JSON):\n{json.dumps(stats, indent=2, default=str)}\n\n"
+        f"Draft market commentary of {length} covering values/rents/yields, construction costs and housing "
+        "conditions as far as the data supports, with trends over time where available."
+    )
+
+
+def provider() -> str | None:
+    """'gemini', 'claude' or None, from PIS_AI_PROVIDER or whichever API key is set."""
+    return settings.ai_provider
+
+
 def extract_report(path: Path, file_type: str, text: str, default_currency: str) -> dict:
+    """Extract structured data from a report with the configured AI provider."""
+    if provider() == "gemini":
+        from . import gemini
+        return gemini.extract_report(path, file_type, text, default_currency)
+    return _claude_extract(path, file_type, text, default_currency)
+
+
+def market_commentary(stats: dict, scope: str, tone: str) -> str:
+    prompt = commentary_prompt(stats, scope, tone)
+    if provider() == "gemini":
+        from . import gemini
+        return gemini.market_commentary(prompt)
+    return _call(COMMENTARY_SYSTEM, [{"type": "text", "text": prompt}], max_tokens=8000,
+                 output_config={"effort": "medium"}).strip()
+
+
+def _claude_extract(path: Path, file_type: str, text: str, default_currency: str) -> dict:
     """Extract structured data from a report using Claude. Returns the draft dict."""
     content: list = []
     size = path.stat().st_size if path.exists() else 0
@@ -191,25 +241,4 @@ def extract_report(path: Path, file_type: str, text: str, default_currency: str)
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise AIError("Claude returned malformed JSON") from exc
-    for rec in data.get("records", []):
-        if isinstance(rec.get("cost_breakdown"), dict):
-            rec["cost_breakdown"] = {k: v for k, v in rec["cost_breakdown"].items() if v is not None} or None
-        for key in [k for k, v in rec.items() if v is None]:
-            del rec[key]
-    return data
-
-
-def market_commentary(stats: dict, scope: str, tone: str) -> str:
-    length = "two short paragraphs" if tone == "concise" else "three to four paragraphs"
-    prompt = (
-        f"Scope of the analysis: {scope}\n\n"
-        f"Statistics from the firm's database (JSON):\n{json.dumps(stats, indent=2, default=str)}\n\n"
-        f"Draft market commentary of {length} covering values/rents/yields, construction costs and housing "
-        "conditions as far as the data supports, with trends over time where available."
-    )
-    return _call(
-        COMMENTARY_SYSTEM,
-        [{"type": "text", "text": prompt}],
-        max_tokens=8000,
-        output_config={"effort": "medium"},
-    ).strip()
+    return clean_extraction(data)

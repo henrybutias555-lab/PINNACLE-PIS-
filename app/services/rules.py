@@ -1,4 +1,4 @@
-"""Rule-based extraction: the offline fallback when Claude is not configured.
+"""Rule-based extraction: the offline fallback when no AI provider is configured.
 
 It is deliberately conservative: it fills fields it can find with clear labels and
 leaves the rest blank for the surveyor to complete during review.
@@ -8,14 +8,27 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
-PROPERTY_TYPES = [
-    ("residential", ["residential", "house", "apartment", "flat", "townhouse", "bungalow", "villa", "duplex", "dwelling"]),
-    ("commercial", ["commercial", "office", "retail", "shop", "mall", "shopping"]),
-    ("industrial", ["industrial", "warehouse", "factory", "logistics"]),
-    ("land", ["land", "plot", "acre", "hectare"]),
-    ("mixed-use", ["mixed-use", "mixed use"]),
-    ("hospitality", ["hotel", "guest house", "hospitality", "lodge"]),
-]
+from . import places
+
+# Words that indicate a building of each type (whole-word, case-insensitive).
+PROPERTY_TYPES = {
+    "residential": ["residential", "house", "houses", "mansion", "villa", "bungalow", "duplex", "townhouse",
+                    "town house", "apartment", "apartments", "flats", "dwelling", "residence", "bedroom",
+                    "bedrooms", "bed room", "boys quarters", "boys' quarters", "master bedroom", "en-suite",
+                    "ensuite", "living room", "detached", "semi-detached", "storey building", "family home"],
+    "commercial": ["commercial", "office", "offices", "office block", "retail", "shop", "shops", "mall",
+                   "shopping", "showroom", "plaza"],
+    "industrial": ["industrial", "warehouse", "warehouses", "factory", "logistics"],
+    "hospitality": ["hotel", "guest house", "guesthouse", "hospitality", "lodge", "resort"],
+    "mixed-use": ["mixed-use", "mixed use"],
+}
+# Phrases that mean the subject is land only (no building).
+LAND_ONLY = ["bare land", "vacant land", "undeveloped land", "vacant plot", "undeveloped plot",
+             "serviced plot", "land only", "empty plot", "parcel of vacant land"]
+LAND_WORDS = ["land", "plot", "plots", "acre", "acres", "hectare", "hectares"]
+# Sub-types worth recording as search tags (first match wins).
+SUBTYPES = ["mansion", "villa", "semi-detached house", "detached house", "townhouse", "bungalow", "duplex",
+            "penthouse", "apartment", "storey building", "office block", "warehouse", "hotel", "guest house"]
 
 CATEGORY_KEYWORDS = {
     "valuation": ["valuation", "market value", "open market", "capital value", "rental value", "yield",
@@ -69,11 +82,42 @@ def classify(text: str) -> str:
     return best if scores[best] > 0 else "valuation"
 
 
+def _count(words: list[str], low: str) -> int:
+    return sum(len(re.findall(rf"(?<![a-z]){re.escape(w)}(?![a-z])", low)) for w in words)
+
+
 def property_type(text: str) -> str | None:
+    """Classify the subject property. A report that mentions bedrooms, a house or a
+    mansion is residential even though it also talks about the land it sits on."""
+    labelled = _labelled(text, ["property type", "type of property", "property description", "description"])
+    for source in ([labelled] if labelled else []) + [text]:
+        low = source.lower()
+        scores = {name: _count(words, low) for name, words in PROPERTY_TYPES.items()}
+        best = max(scores, key=scores.get)
+        if _count(LAND_ONLY, low) and scores[best] < 2:
+            return "land"
+        if scores[best] > 0:
+            return best
+        if source is labelled and _count(LAND_WORDS, low):
+            return "land"
+    return "land" if _count(LAND_WORDS, text.lower()) else None
+
+
+def property_tags(text: str) -> list[str]:
+    """Sub-type and bedroom tags, e.g. ['mansion', '5-bedroom']."""
     low = text.lower()
-    scores = {name: sum(low.count(k) for k in kws) for name, kws in PROPERTY_TYPES}
-    best = max(scores, key=scores.get)
-    return best if scores[best] > 0 else None
+    tags = []
+    for sub in SUBTYPES:
+        if re.search(rf"(?<![a-z]){re.escape(sub)}", low):
+            tags.append(sub)
+            break
+    m = re.search(r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten)[\s-]*(?:no\.?\s*)?bed(?:room|[\s-]room)s?\b", low)
+    if m:
+        words = "one two three four five six seven eight nine ten".split()
+        n = m.group(1)
+        n = str(words.index(n) + 1) if n in words else n
+        tags.append(f"{n}-bedroom")
+    return tags
 
 
 def _labelled(text: str, labels: list[str]) -> str | None:
@@ -149,7 +193,15 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
     record["region"] = _labelled(text, ["region", "state", "province"])
     record["client"] = _labelled(text, ["client", "prepared for", "instructed by"])
     record["purpose"] = _labelled(text, ["purpose of valuation", "purpose", "basis of instruction"])
+    if record.get("location") and re.match(r"\s*[\d.,]+", record["location"]):
+        record["location"] = None  # e.g. "Area: 0.25 acres" is a size, not a place
+    place = places.resolve(record.get("location"), record.get("address"), record.get("city"),
+                           record.get("region"), text)
+    record.update({k: v for k, v in place.items() if v})
     record["property_type"] = property_type(text)
+    tags = property_tags(text)
+    if tags:
+        record["tags"] = tags
     d = find_date(text)
     record["record_date"] = d.isoformat() if d else None
     record["size_sqm"] = _size(text)

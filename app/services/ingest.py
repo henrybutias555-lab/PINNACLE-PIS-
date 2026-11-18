@@ -1,4 +1,4 @@
-"""Run extraction for an uploaded report: Claude when configured, rules otherwise."""
+"""Run extraction for an uploaded report: AI (Gemini or Claude) when configured, rules otherwise."""
 from __future__ import annotations
 
 import logging
@@ -49,7 +49,7 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         if not text.strip():
             report.status = "failed"
             report.error = (warning + " " if warning else "") + (
-                "No readable text found. For scanned documents configure the Claude API key "
+                "No readable text found. For scanned documents configure an AI key (GEMINI_API_KEY) "
                 "(or install Tesseract OCR), or enter the data manually."
             )
             report.draft = {"report_type": None, "title": None, "summary": None, "records": []}

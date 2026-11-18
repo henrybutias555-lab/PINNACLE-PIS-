@@ -114,7 +114,8 @@ function startApp() {
   $("#who").textContent = `${state.user.full_name || state.user.email} · ${ROLE_NAMES[state.user.role]}`;
   const ai = state.health && state.health.ai_enabled;
   const pill = $("#ai-status");
-  pill.textContent = ai ? "AI: Claude connected" : "AI: offline (rule-based)";
+  const aiName = { gemini: "Gemini", claude: "Claude" }[state.health && state.health.ai_provider] || "AI";
+  pill.textContent = ai ? `AI: ${aiName} connected` : "AI: offline (rule-based)";
   pill.className = "pill " + (ai ? "ok" : "warn");
   $$("[data-min-role]").forEach((el) => el.classList.toggle("hidden", !can(el.dataset.minRole)));
   if (state.health && state.health.max_upload_mb) {
@@ -502,7 +503,7 @@ $("#gen-commentary").addEventListener("click", async (e) => {
     const d = await api("/api/analytics/commentary", { method: "POST", body: { ...intelFilters(), tone: $("#comm-tone").value } });
     $("#commentary").value = d.commentary;
     $("#commentary").dataset.scope = d.scope;
-    $("#comm-meta").textContent = `${d.method === "ai" ? "Drafted by Claude" : "Template draft"} from ${d.record_count} records · ${d.scope}${d.warning ? " · " + d.warning : ""}. Review before use.`;
+    $("#comm-meta").textContent = `${d.method === "ai" ? "Drafted by AI" : "Template draft"} from ${d.record_count} records · ${d.scope}${d.warning ? " · " + d.warning : ""}. Review before use.`;
   } catch (err) { toast(err.message, true); }
   btn.disabled = false; btn.textContent = "Generate";
 });
