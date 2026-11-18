@@ -294,3 +294,14 @@ def test_database_failure_shows_page_not_crash(client, monkeypatch):
     assert r.status_code == 503
     assert "Could not connect to the database" in r.text
     assert "FakeSecret1" not in r.text and "****" in r.text
+
+
+def test_render_guard_and_healthz(client, monkeypatch):
+    """On Render the same safety checks apply, but /healthz always answers for health checks."""
+    from app import config
+
+    monkeypatch.setattr(config, "PUBLIC_DEPLOY", True)
+    monkeypatch.setattr(config.settings, "secret_key", config.DEFAULT_SECRET)
+    assert client.get("/").status_code == 503
+    r = client.get("/healthz")
+    assert r.status_code == 200 and r.json()["status"] == "alive"

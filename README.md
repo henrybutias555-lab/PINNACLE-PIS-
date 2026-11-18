@@ -46,6 +46,18 @@ python -m scripts.seed_demo --clear  # removes them again
 
 The interactive API documentation is at http://localhost:8000/docs.
 
+## Deploying on Render (recommended)
+
+1. In Render choose **New + → Blueprint**, connect GitHub and pick this repository. Render reads `render.yaml`.
+2. When asked, fill in:
+   - `DATABASE_URL`: the Supabase **Transaction pooler** connection string
+   - `PIS_ADMIN_EMAIL` and `PIS_ADMIN_PASSWORD`: the first admin login
+
+   `PIS_SECRET_KEY` is generated automatically.
+3. Click **Apply**. Render builds and deploys, and every push to `main` redeploys automatically.
+
+The free plan sleeps after 15 minutes without traffic, so the first visit after that takes about a minute. Add `ANTHROPIC_API_KEY` under **Environment** to enable Claude.
+
 ## Deploying on Vercel
 
 The repository is ready for Vercel: `api/index.py` is the serverless entry point and `vercel.json` sends every route to it.

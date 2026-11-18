@@ -23,6 +23,9 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 ON_VERCEL = bool(os.getenv("VERCEL"))
+ON_RENDER = bool(os.getenv("RENDER"))
+# Publicly hosted: refuse insecure defaults (see Settings.deployment_problems).
+PUBLIC_DEPLOY = ON_VERCEL or ON_RENDER or os.getenv("PIS_PUBLIC_DEPLOY") == "1"
 
 
 def _encode_password(url: str) -> str:
@@ -88,7 +91,7 @@ class Settings:
 
     def deployment_problems(self) -> list[str]:
         """Settings that must be fixed before a public deployment can safely run."""
-        if not ON_VERCEL:
+        if not (PUBLIC_DEPLOY or ON_VERCEL):
             return []
         problems = []
         if self.secret_key == DEFAULT_SECRET or len(self.secret_key) < 32:
@@ -96,8 +99,8 @@ class Settings:
         if self.admin_password == DEFAULT_ADMIN_PASSWORD:
             problems.append("PIS_ADMIN_PASSWORD: set the password for the first admin account (not the default).")
         if self.database_url.startswith("sqlite"):
-            problems.append("DATABASE_URL: connect a Postgres database (Vercel Storage → Neon Postgres), "
-                            "otherwise all data would be lost whenever Vercel restarts the app.")
+            problems.append("DATABASE_URL: connect a Postgres database (e.g. the Supabase 'Transaction pooler' "
+                            "connection string), otherwise all data would be lost whenever the host restarts the app.")
         return problems
 
 
