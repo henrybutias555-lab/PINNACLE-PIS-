@@ -1,0 +1,29 @@
+# Render Blueprint for the Pinnacle Intelligence System.
+# In Render: New + -> Blueprint -> pick this repository. Render reads this file,
+# generates PIS_SECRET_KEY, and asks for the values marked "sync: false".
+services:
+  - type: web
+    name: pinnacle-intelligence-system
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: main
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: PIS_DEFAULT_CURRENCY
+        value: GHS
+      - key: PIS_SECRET_KEY
+        generateValue: true
+      # Supabase "Transaction pooler" connection string (port 6543).
+      - key: DATABASE_URL
+        sync: false
+      - key: PIS_ADMIN_EMAIL
+        sync: false
+      - key: PIS_ADMIN_PASSWORD
+        sync: false
+      # Optional: add ANTHROPIC_API_KEY under Environment later to enable Claude.

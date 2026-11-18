@@ -62,6 +62,9 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Pinnacle Intelligence System", version="1.0.0", lifespan=lifespan)
 
 
+BUILD = (os.getenv("VERCEL_GIT_COMMIT_SHA") or os.getenv("RENDER_GIT_COMMIT") or "local")[:7]
+
+
 def _setup_page(problems: list[str]) -> str:
     items = "".join(f"<li>{html.escape(p)}</li>" for p in problems)
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -70,11 +73,12 @@ def _setup_page(problems: list[str]) -> str:
 color:#1c2430;background:#f4f6f9}}code{{background:#e8f1f3;padding:0 .3em;border-radius:4px}}
 h1{{color:#0f4c5c}}</style></head><body>
 <h1>Pinnacle Intelligence System &mdash; setup required</h1>
-<p>The app is deployed but needs these settings before it can run safely. In Vercel open
-<b>Project &rarr; Settings &rarr; Environment Variables</b>, add them, then redeploy.</p>
+<p>The app is deployed but needs these settings before it can run safely. Add them in your host's
+environment settings (Render: <b>Service &rarr; Environment</b>; Vercel: <b>Project &rarr; Settings &rarr;
+Environment Variables</b>), then redeploy.</p>
 <ul>{items}</ul>
 <p>Optional: <code>ANTHROPIC_API_KEY</code> turns on Claude for document extraction and commentary.</p>
-<p style="color:#64707f;font-size:.85em">Build {html.escape((os.getenv("VERCEL_GIT_COMMIT_SHA") or "local")[:7])}</p>
+<p style="color:#64707f;font-size:.85em">Build {html.escape(BUILD)}</p>
 </body></html>"""
 
 
@@ -102,6 +106,8 @@ def _guard_response(request: Request, problems: list[str]):
 
 @app.middleware("http")
 async def deployment_guard(request: Request, call_next):
+    if request.url.path == "/healthz":  # liveness check for the host; never blocked
+        return await call_next(request)
     problems = settings.deployment_problems()
     if not problems and ENGINE_ERROR:
         problems = ["DATABASE_URL is not valid: " + _db_error_message(ENGINE_ERROR)]
@@ -123,12 +129,17 @@ app.include_router(records.router)
 app.include_router(intelligence.router)
 
 
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    return {"status": "alive", "build": BUILD}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "ai_enabled": settings.ai_enabled,
             "model": settings.claude_model if settings.ai_enabled else None,
             "default_currency": settings.default_currency, "max_upload_mb": settings.max_upload_mb,
-            "build": (os.getenv("VERCEL_GIT_COMMIT_SHA") or "local")[:7]}
+            "build": BUILD}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
