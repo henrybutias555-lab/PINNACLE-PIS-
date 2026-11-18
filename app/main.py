@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .auth import hash_password
 from .config import settings
-from .database import Base, SessionLocal, engine
+from .database import ENGINE_ERROR, Base, SessionLocal, engine, safe_url
 from .models import User
 from .routers import auth_users, intelligence, records, reports
 
@@ -53,8 +53,8 @@ def init_db() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if not settings.deployment_problems():
-        init_db()
+    # Initialisation happens on the first request (see deployment_guard), never at
+    # startup: a database outage at startup would crash the whole serverless function.
     yield
 
 
@@ -76,14 +76,42 @@ h1{{color:#0f4c5c}}</style></head><body>
 </body></html>"""
 
 
+def _db_error_message(exc: Exception | str) -> str:
+    """Readable database error with any password removed."""
+    from urllib.parse import unquote
+
+    from sqlalchemy.engine import make_url
+
+    text = str(getattr(exc, "orig", None) or exc).strip().splitlines()[0] if str(exc).strip() else repr(exc)
+    try:
+        password = make_url(settings.database_url).password
+    except Exception:
+        password = None
+    for secret in {password, unquote(password or "")} - {None, ""}:
+        text = text.replace(secret, "****")
+    return f"{text} (connecting to {safe_url(settings.database_url)})"
+
+
+def _guard_response(request: Request, problems: list[str]):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": "Server setup incomplete", "problems": problems}, status_code=503)
+    return HTMLResponse(_setup_page(problems), status_code=503)
+
+
 @app.middleware("http")
 async def deployment_guard(request: Request, call_next):
     problems = settings.deployment_problems()
+    if not problems and ENGINE_ERROR:
+        problems = ["DATABASE_URL is not valid: " + _db_error_message(ENGINE_ERROR)]
+    if not problems:
+        try:
+            init_db()
+        except Exception as exc:
+            log.exception("Database initialisation failed")
+            problems = ["Could not connect to the database. Check DATABASE_URL (use the Supabase "
+                        "'Transaction pooler' string and the correct password). Error: " + _db_error_message(exc)]
     if problems:
-        if request.url.path.startswith("/api/"):
-            return JSONResponse({"detail": "Server setup incomplete", "problems": problems}, status_code=503)
-        return HTMLResponse(_setup_page(problems), status_code=503)
-    init_db()
+        return _guard_response(request, problems)
     return await call_next(request)
 
 

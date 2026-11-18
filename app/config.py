@@ -25,6 +25,27 @@ _load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 ON_VERCEL = bool(os.getenv("VERCEL"))
 
 
+def _encode_password(url: str) -> str:
+    """URL-encode the password so characters like '@', '#', '/' or '?' work unescaped.
+
+    Splits on the LAST '@' before the host, so 'user:Pa@ss@host' is read as
+    password 'Pa@ss'. Already-encoded passwords (e.g. 'Pa%40ss') are left intact.
+    """
+    from urllib.parse import quote, unquote
+
+    scheme, sep, rest = url.partition("://")
+    if not sep or "@" not in rest:
+        return url
+    # The host starts after the last '@' (query parameters never contain one in practice).
+    at = rest.rfind("@")
+    userinfo, hostpart = rest[:at], rest[at + 1:]
+    user, colon, password = userinfo.partition(":")
+    if not colon:
+        return url
+    password = quote(unquote(password), safe="")
+    return f"{scheme}://{user}:{password}@{hostpart}"
+
+
 def _database_url() -> str:
     """PIS_DATABASE_URL, else the URL a Vercel Postgres / Neon integration provides."""
     url = (os.getenv("PIS_DATABASE_URL") or os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL") or "").strip()
@@ -35,6 +56,7 @@ def _database_url() -> str:
         url = "postgresql+psycopg://" + url[len("postgres://"):]
     elif url.startswith("postgresql://"):
         url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    url = _encode_password(url)
     # Drop Prisma-style flags (e.g. Supabase's "?pgbouncer=true") that libpq rejects.
     if "?" in url:
         from urllib.parse import parse_qsl, urlencode
