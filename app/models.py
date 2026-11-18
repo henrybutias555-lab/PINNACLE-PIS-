@@ -72,7 +72,7 @@ class Record(Base):
     # Common descriptors
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    gps_address: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)  # Ghana Post GPS
+    gps_address: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)  # Ghana Post GPS
     location: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)  # area / suburb
     district: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)  # MMDA
     city: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
@@ -133,12 +133,12 @@ class Record(Base):
     planning_status: Mapped[str | None] = mapped_column(String(255), nullable=True)
     inspection_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     forced_sale_value: Mapped[float | None] = mapped_column(Float, nullable=True)
-    location_rating: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    accessibility_rating: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    state_of_repair: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    user_conformity: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    neighbourhood_rating: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    overall_marketability: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    location_rating: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    accessibility_rating: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    state_of_repair: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    user_conformity: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    neighbourhood_rating: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    overall_marketability: Mapped[str | None] = mapped_column(String(255), nullable=True)
     encumbrances: Mapped[str | None] = mapped_column(Text, nullable=True)
     legal_disclaimer: Mapped[str | None] = mapped_column(Text, nullable=True)
     inspection_limitation: Mapped[str | None] = mapped_column(Text, nullable=True)

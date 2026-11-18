@@ -66,6 +66,30 @@ def add_missing_columns(bind) -> list[str]:
     return added
 
 
+def widen_columns(bind) -> list[str]:
+    """Postgres: make VARCHAR columns at least as long as the model says (e.g. 40 -> 255).
+    Only ever widens; never shortens or changes data."""
+    from sqlalchemy import String, inspect
+
+    if bind.dialect.name != "postgresql":
+        return []  # SQLite does not enforce VARCHAR lengths
+    widened = []
+    insp = inspect(bind)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name, schema=table.schema):
+            continue
+        current = {c["name"]: c["type"] for c in insp.get_columns(table.name, schema=table.schema)}
+        for column in table.columns:
+            want = getattr(column.type, "length", None)
+            have = getattr(current.get(column.name), "length", None)
+            if isinstance(column.type, String) and want and have and have < want:
+                full = f'"{table.schema}"."{table.name}"' if table.schema else f'"{table.name}"'
+                with bind.begin() as conn:
+                    conn.execute(text(f'ALTER TABLE {full} ALTER COLUMN "{column.name}" TYPE VARCHAR({want})'))
+                widened.append(f"{table.name}.{column.name} {have}->{want}")
+    return widened
+
+
 def safe_url(url: str) -> str:
     """The database URL with the password hidden, for error messages."""
     try:

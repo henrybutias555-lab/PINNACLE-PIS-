@@ -44,7 +44,7 @@ CURRENCY = r"(?:GH[S¢₵]|GHC|₵|USD|US\$|\$|NGN|₦|GBP|£|EUR|€)"
 _CUR_BEFORE = r"(?:gh\s?[s¢₵c]|ghana\s+cedis?|₵|¢|us\s?\$|usd|\$|ngn|₦|gbp|£|eur|€)"
 # ... or after it ("2,300,000.00 Ghana Cedis", "180,000 US Dollars")
 _CUR_AFTER = r"(?:ghana\s+cedis|cedis|gh\s?[s¢₵c]\b|us\s+dollars|u\.?s\.?\s+dollars|dollars|usd\b)"
-_NUM = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
+_NUM = r"\d{1,3}(?:(?:,\s?|[\u00a0\u202f\u2009 ])\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 _SCALE = r"(?:million|mn|m|bn|billion|k)\b"
 _MONEY_RE = re.compile(
     rf"(?P<cur1>{_CUR_BEFORE})\s*(?P<n1>{_NUM})\s*(?P<s1>{_SCALE})?"
@@ -58,7 +58,7 @@ _MONTHS = "January February March April May June July August September October N
 
 def _num(raw: str, scale: str | None = None) -> float | None:
     try:
-        value = float(raw.replace(",", ""))
+        value = float(re.sub(r"[,\s\u00a0\u202f\u2009]", "", raw))
     except ValueError:
         return None
     scale = (scale or "").lower()
