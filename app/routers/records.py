@@ -1,6 +1,8 @@
 """Structured data: search, filter, create, edit, tag and delete records."""
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy import func, select
@@ -23,8 +25,58 @@ SORTABLE = {
 }
 
 
+RATING_FIELDS = ("location_rating", "accessibility_rating", "neighbourhood_rating", "overall_marketability")
+
+
+def normalise_rating(value: str | None, kind: str = "rating") -> str | None:
+    """'The property ... appears to be in a good structural and tenantable condition.' -> 'Good'."""
+    if value is None or not str(value).strip():
+        return None
+    v = str(value).strip()
+    low = v.lower()
+    if kind == "conformity":
+        if re.search(r"non[- ]?conform|not conform|does not conform|contravene", low):
+            return "Non-conforming"
+        if re.search(r"partly|partially", low) and "conform" in low:
+            return "Partly conforming"
+        if "conform" in low or "in line with" in low or "compatible" in low:
+            return "Conforming"
+        return v[:255]
+    words = ["very good", "excellent", "good", "fair", "poor", "dilapidated"] if kind == "repair" else \
+        ["very good", "excellent", "good", "fair", "poor"]
+    if len(v) <= 20 and v.title() in [w.title() for w in words] + ["Very Good"]:
+        return "Very good" if low == "very good" else v.capitalize() if low != "very good" else v
+    for w in words:
+        if re.search(rf"\b{w}\b", low):
+            return w.capitalize() if w != "very good" else "Very good"
+    if kind == "repair":
+        if re.search(r"newly built|new building|brand new|well maintained|tenantable|sound", low):
+            return "Good"
+        if re.search(r"dilapidat|derelict|ruin", low):
+            return "Dilapidated"
+        if re.search(r"bad|deteriorat|needs? repair|defect", low):
+            return "Poor"
+    return v[:255]
+
+
+def _fit_text(rec: Record) -> None:
+    """Never let an over-long value break a save: trim to the column's size."""
+    from sqlalchemy import String
+
+    for column in Record.__table__.columns:
+        length = getattr(column.type, "length", None)
+        if isinstance(column.type, String) and length:
+            value = getattr(rec, column.name)
+            if isinstance(value, str) and len(value) > length:
+                setattr(rec, column.name, value[: length - 1].rstrip() + "…")
+
+
 def _derive(rec: Record) -> None:
     """Fill derivable figures (rates per m², yield) when the inputs exist."""
+    for field in RATING_FIELDS:
+        setattr(rec, field, normalise_rating(getattr(rec, field)))
+    rec.state_of_repair = normalise_rating(rec.state_of_repair, "repair")
+    rec.user_conformity = normalise_rating(rec.user_conformity, "conformity")
     if rec.size_sqm:
         if rec.capital_value and not rec.value_per_sqm:
             rec.value_per_sqm = round(rec.capital_value / rec.size_sqm, 2)
@@ -39,6 +91,7 @@ def _derive(rec: Record) -> None:
     if rec.basis_of_value:
         from ..services.rules import normalise_basis
         rec.basis_of_value = normalise_basis(rec.basis_of_value)
+    _fit_text(rec)
     if rec.comparables:
         comps = []
         for c in rec.comparables:

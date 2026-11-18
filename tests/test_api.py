@@ -991,3 +991,46 @@ def test_fill_gaps_bulk(client, admin, make_user):
     assert rec["capital_value"] == 900000                     # existing values untouched
     again = client.get("/api/gaps/bulk/preview?q=Dansoman", headers=admin).json()
     assert not any(r["id"] == rid for r in again["records"])  # nothing left to fill
+
+
+def test_long_text_in_short_fields_saves(client, admin):
+    """Regression: a sentence in 'State of repair' made saving fail with a 500 on Postgres."""
+    sentence = "The property is newly built and appears to be in a good structural and tenantable condition."
+    rep = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", ("repair.txt", (
+        "VALUATION REPORT\nLocation: Osu, Accra\nCondition: " + sentence + "\nMarket value: GH¢ 2 300 000.00"
+    ).encode(), "text/plain"))]).json()[0]
+    draft = rep["draft"]["records"][0]
+    assert draft["state_of_repair"] == "Good" and draft["capital_value"] == 2300000
+    r = client.post(f"/api/reports/{rep['id']}/confirm", headers=admin, json={"records": [draft]})
+    assert r.status_code == 200, r.text
+    rid = client.get(f"/api/records?report_id={rep['id']}", headers=admin).json()["items"][0]["id"]
+    # a long sentence typed straight into a rating, and an over-long GPS address, still save
+    r = client.patch(f"/api/records/{rid}", headers=admin, json={
+        "state_of_repair": sentence, "overall_marketability": "Overall, marketability is considered very good " * 10,
+        "user_conformity": "The current use conforms to the zoning regulations of the area",
+        "gps_address": "GA-183-8164 " * 12})
+    assert r.status_code == 200, r.text
+    rec = r.json()
+    assert (rec["state_of_repair"], rec["overall_marketability"], rec["user_conformity"]) == (
+        "Good", "Very good", "Conforming")
+    assert len(rec["gps_address"]) <= 80
+    # update after a re-run (the exact request that failed live)
+    client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin)
+    body = client.get(f"/api/reports/{rep['id']}", headers=admin).json()["draft"]["records"]
+    body[0]["state_of_repair"] = sentence
+    assert client.post(f"/api/reports/{rep['id']}/update-records", headers=admin,
+                       json={"records": body}).status_code == 200
+
+
+def test_unexpected_errors_are_explained(client, admin, monkeypatch):
+    from app.routers import records as records_router
+
+    def boom(*a, **k):
+        raise RuntimeError("simulated failure")
+    monkeypatch.setattr(records_router, "record_from_payload", boom)
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    with TestClient(app, raise_server_exceptions=False) as c:
+        r = c.post("/api/records", headers=admin, json={"category": "valuation"})
+    assert r.status_code == 500 and "nothing was saved" in r.json()["detail"]

@@ -17,7 +17,8 @@ from sqlalchemy.exc import IntegrityError
 
 from .auth import hash_password
 from .config import settings
-from .database import ENGINE_ERROR, Base, SessionLocal, add_missing_columns, engine, ensure_schema, safe_url
+from .database import (ENGINE_ERROR, Base, SessionLocal, add_missing_columns, engine, ensure_schema, safe_url,
+                       widen_columns)
 from .models import User
 from .routers import attachments, auth_users, gaps, imports, intelligence, records, reports
 
@@ -81,6 +82,8 @@ def init_db() -> None:
         Base.metadata.create_all(engine)
         for column in add_missing_columns(engine):
             log.info("Database upgraded: added column %s", column)
+        for column in widen_columns(engine):
+            log.info("Database upgraded: widened column %s", column)
         fixed = _fix_mmda_values() + _fix_basis_values()
         if fixed:
             log.warning("Corrected %d MMDA value(s) that were not assemblies", fixed)
@@ -107,6 +110,26 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Pinnacle Intelligence System", version="1.0.0", lifespan=lifespan)
+
+
+@app.exception_handler(Exception)
+async def friendly_errors(request: Request, exc: Exception):
+    """Unexpected problems: log the details, tell the user in plain words."""
+    from sqlalchemy.exc import DataError, IntegrityError, OperationalError
+
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    if isinstance(exc, DataError):
+        detail = "One of the values is too long or in the wrong format for its field. Shorten long text " \
+                 "(e.g. ratings should be a word like 'Good') and try again."
+        status = 422
+    elif isinstance(exc, IntegrityError):
+        detail, status = "This change conflicts with existing data (for example a duplicate). Nothing was saved.", 409
+    elif isinstance(exc, OperationalError):
+        detail, status = "The database could not be reached just now. Please try again in a moment.", 503
+    else:
+        detail, status = "Something went wrong on the server and nothing was saved. Please try again; " \
+                         "if it keeps happening, tell your administrator the time it happened.", 500
+    return JSONResponse({"detail": detail}, status_code=status)
 
 
 BUILD = (os.getenv("VERCEL_GIT_COMMIT_SHA") or os.getenv("RENDER_GIT_COMMIT") or "local")[:7]

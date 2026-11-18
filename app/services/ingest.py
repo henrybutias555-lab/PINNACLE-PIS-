@@ -86,6 +86,14 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         _derive_rates(rec)
         if rec.get("basis_of_value"):
             rec["basis_of_value"] = rules.normalise_basis(rec["basis_of_value"])
+        from ..routers.records import RATING_FIELDS, normalise_rating
+        for field in RATING_FIELDS:
+            if rec.get(field):
+                rec[field] = normalise_rating(rec[field])
+        if rec.get("state_of_repair"):
+            rec["state_of_repair"] = normalise_rating(rec["state_of_repair"], "repair")
+        if rec.get("user_conformity"):
+            rec["user_conformity"] = normalise_rating(rec["user_conformity"], "conformity")
         if report.extraction_method == "ai":
             # Check the AI's place fields and fill blanks from the report text with the built-in rules.
             place = places.resolve(rec.get("location"), rec.get("address"), rec.get("city"), rec.get("region"),
