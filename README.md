@@ -58,6 +58,13 @@ The repository is ready for Vercel: `api/index.py` is the serverless entry point
    - `ANTHROPIC_API_KEY` (optional): enables Claude extraction and commentary
 4. **Redeploy:** go to *Deployments → ⋯ → Redeploy*, open the site and sign in.
 
+**Using Supabase instead of Neon:**
+1. In the Supabase project click **Connect**, choose the **Transaction pooler** connection string (port `6543`, host `…pooler.supabase.com`) and copy the URI.
+2. Replace `[YOUR-PASSWORD]` with the database password. Characters such as `@ # / ?` in the password must be URL-encoded.
+3. Add the result to Vercel as `DATABASE_URL`.
+
+Don't use the "Direct connection" string: it is IPv6-only and Vercel cannot reach it. The app turns off prepared statements so it works through the pooler.
+
 Until steps 2–3 are done the site shows a "setup required" page listing what is missing, rather than running insecurely.
 
 Limits on Vercel:
