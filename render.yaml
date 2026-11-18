@@ -26,4 +26,5 @@ services:
         sync: false
       - key: PIS_ADMIN_PASSWORD
         sync: false
-      # Optional: add ANTHROPIC_API_KEY under Environment later to enable Claude.
+      # Optional: add GEMINI_API_KEY (Google AI Studio) under Environment to enable AI
+      # extraction/commentary with Gemini, or ANTHROPIC_API_KEY for Claude.

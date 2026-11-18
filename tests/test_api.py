@@ -314,3 +314,100 @@ def test_index_busts_asset_cache(client):
     assert r.headers["cache-control"] == "no-cache"
     assert f"/static/app.js?v={ASSET_VERSION}" in r.text
     assert f"/static/styles.css?v={ASSET_VERSION}" in r.text
+
+
+GHANA_REPORT = """VALUATION REPORT
+Property Address: Quartey Papafio Hills
+Location: Santeo - East Legon Hills, Accra
+Region: Greater Accra Region
+Date of Valuation: 1 August 2023
+The subject property is a 5-bedroom mansion with boys quarters, built on a plot of land measuring
+approximately 0.25 acres (land area 1,011.7 sq m). The land title is registered.
+Gross floor area: 206.55 sq m. We have adopted the Cost Approach. Market value: GHS 2,300,000"""
+
+
+def test_rules_ghana_places_and_property_type():
+    from app.services import rules
+
+    r = rules.extract(GHANA_REPORT)["records"][0]
+    assert (r["location"], r["city"], r["region"]) == ("Santeo - East Legon Hills", "Accra", "Greater Accra")
+    assert r["property_type"] == "residential"
+    assert r["tags"] == ["mansion", "5-bedroom"]
+
+    land = rules.extract("Location: Oyibi\nA parcel of vacant land of 0.5 acres. Market value: GHS 400,000")["records"][0]
+    assert land["property_type"] == "land" and land["city"] == "Accra"
+    tema = rules.extract("Property Address: House No. 12, Community 25, Tema\nThree bedroom detached house. "
+                         "Market value: GHS 1,200,000")["records"][0]
+    assert (tema["city"], tema["property_type"]) == ("Tema", "residential")
+    assert "3-bedroom" in tema["tags"]
+    kumasi = rules.extract("Valuation of an office block at Ahodwo. Market value: GHS 9,000,000")["records"][0]
+    assert (kumasi["location"], kumasi["city"], kumasi["property_type"]) == ("Ahodwo", "Kumasi", "commercial")
+
+
+def test_ai_provider_selection(monkeypatch):
+    from app.config import settings
+
+    for k in ("PIS_DISABLE_AI", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+              "PIS_AI_PROVIDER"):
+        monkeypatch.delenv(k, raising=False)
+    assert settings.ai_provider is None
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
+    assert settings.ai_provider == "claude"
+    monkeypatch.setenv("GEMINI_API_KEY", "y")
+    assert settings.ai_provider == "gemini" and settings.ai_model == settings.gemini_model
+    monkeypatch.setenv("PIS_AI_PROVIDER", "claude")
+    assert settings.ai_provider == "claude"
+
+
+def test_gemini_extraction_with_mocked_api(monkeypatch, tmp_path):
+    """The Gemini request is well-formed and its JSON answer is cleaned into a draft."""
+    import json as _json
+    from types import SimpleNamespace
+
+    from google.genai import types
+
+    from app.services import gemini
+
+    captured = {}
+
+    class FakeModels:
+        def generate_content(self, model, contents, config):
+            assert isinstance(config, types.GenerateContentConfig)
+            captured.update(model=model, contents=contents, config=config)
+            answer = {"report_type": "valuation", "title": "Valuation", "summary": "",
+                      "records": [{"category": "valuation", "location": "East Legon Hills", "city": "Accra",
+                                   "property_type": "residential", "capital_value": 2300000, "yield_pct": 0,
+                                   "client": "", "tags": ["mansion", "5-bedroom"], "comparables": []}]}
+            return SimpleNamespace(text=_json.dumps(answer),
+                                   candidates=[SimpleNamespace(finish_reason=types.FinishReason.STOP)])
+
+    monkeypatch.setattr(gemini, "_client", lambda: SimpleNamespace(models=FakeModels()))
+    f = tmp_path / "report.docx"
+    f.write_bytes(b"x")
+    draft = gemini.extract_report(f, "docx", GHANA_REPORT, "GHS")
+    rec = draft["records"][0]
+    assert rec["city"] == "Accra" and rec["capital_value"] == 2300000
+    assert "yield_pct" not in rec and "client" not in rec and "comparables" not in rec  # empties dropped
+    assert captured["config"].response_mime_type == "application/json"
+    assert captured["config"].response_json_schema["required"] == ["report_type", "records"]
+    assert "Santeo" in captured["contents"][0]
+
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    gemini.extract_report(pdf, "pdf", "", "GHS")
+    assert isinstance(captured["contents"][0], types.Part)  # PDFs go to Gemini directly (scans too)
+
+
+def test_gemini_schema_has_no_nullable_types():
+    from app.services.gemini import GEMINI_SCHEMA
+
+    def walk(node):
+        if isinstance(node, dict):
+            assert not isinstance(node.get("type"), list) and "anyOf" not in node
+            assert None not in node.get("enum", [])
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    walk(GEMINI_SCHEMA)

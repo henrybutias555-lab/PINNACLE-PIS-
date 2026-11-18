@@ -49,7 +49,8 @@ def init_db() -> None:
                                 settings.admin_email)
                 except IntegrityError:  # another instance created it first
                     db.rollback()
-        log.info("AI extraction/commentary: %s", "enabled" if settings.ai_enabled else "disabled (no Anthropic key)")
+        log.info("AI extraction/commentary: %s", f"{settings.ai_provider} ({settings.ai_model})" if settings.ai_enabled
+                 else "disabled (no GEMINI_API_KEY or ANTHROPIC_API_KEY)")
         _initialised = True
 
 
@@ -91,7 +92,7 @@ h1{{color:#0f4c5c}}</style></head><body>
 environment settings (Render: <b>Service &rarr; Environment</b>; Vercel: <b>Project &rarr; Settings &rarr;
 Environment Variables</b>), then redeploy.</p>
 <ul>{items}</ul>
-<p>Optional: <code>ANTHROPIC_API_KEY</code> turns on Claude for document extraction and commentary.</p>
+<p>Optional: <code>GEMINI_API_KEY</code> (Google Gemini) or <code>ANTHROPIC_API_KEY</code> (Claude) turns on AI document extraction and commentary.</p>
 <p style="color:#64707f;font-size:.85em">Build {html.escape(BUILD)}</p>
 </body></html>"""
 
@@ -151,7 +152,7 @@ def healthz():
 @app.get("/api/health")
 def health():
     return {"status": "ok", "ai_enabled": settings.ai_enabled,
-            "model": settings.claude_model if settings.ai_enabled else None,
+            "ai_provider": settings.ai_provider, "model": settings.ai_model,
             "default_currency": settings.default_currency, "max_upload_mb": settings.max_upload_mb,
             "build": BUILD}
 

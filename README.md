@@ -86,16 +86,22 @@ Limits on Vercel:
 
 ## AI configuration
 
-Set `ANTHROPIC_API_KEY` in `.env` to turn on Claude. The model defaults to `claude-opus-5-5` and can be changed with `PIS_CLAUDE_MODEL`.
+Set one API key to turn on AI extraction and commentary:
 
-- **Extraction:** the PDF (or image, or the document's text) goes to Claude, which must return JSON matching a strict schema. Missing values come back as `null`; the prompt tells Claude never to estimate figures.
-- **Commentary:** Claude writes prose only from the statistics the system computed, and the surveyor edits it before use.
-- Requests use server-side refusal fallbacks (`fallbacks: "default"`).
-- **Without a key,** or if an AI call fails, the system falls back to rule-based extraction and template commentary. The UI shows which method produced each draft.
+| Provider | Key | Model setting (default) |
+|---|---|---|
+| Google Gemini | `GEMINI_API_KEY` (from Google AI Studio) | `PIS_GEMINI_MODEL` (`gemini-2.5-flash`) |
+| Anthropic Claude | `ANTHROPIC_API_KEY` | `PIS_CLAUDE_MODEL` (`claude-opus-5-5`) |
+
+If both keys are set, Gemini is used. Set `PIS_AI_PROVIDER=claude` (or `gemini`) to choose explicitly.
+
+- **Extraction:** the PDF (or image, or the document's text) goes to the AI, which returns JSON matching a fixed schema. Values not stated in the report are left blank; the prompt forbids estimating figures. Location, city and region are separated (e.g. East Legon Hills / Accra / Greater Accra), and houses on a plot are classed as residential with tags such as "mansion" and "5-bedroom".
+- **Commentary:** the AI writes prose only from the statistics the system computed, and the surveyor edits it before use.
+- **Without a key,** or if an AI call fails, the system uses rule-based extraction and template commentary. The rules know Ghanaian cities and neighbourhoods (`app/services/places.py`). The UI shows which method produced each draft.
 
 Without a key, scanned documents need OCR. Install Tesseract plus `pip install pytesseract pdf2image` and it is used automatically.
 
-> Uploaded reports are sent to the Anthropic API when AI is enabled. Confirm this fits the firm's data-handling policy and client confidentiality terms before turning it on.
+> Uploaded reports are sent to the chosen AI provider when AI is enabled. Confirm this fits the firm's data-handling policy and client confidentiality terms before turning it on. On Gemini's free tier, Google may use submitted content to improve its products; use a paid (billing-enabled) key for client documents.
 
 ## Configuration
 
