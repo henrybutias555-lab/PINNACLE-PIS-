@@ -261,3 +261,36 @@ def test_database_url_normalisation(monkeypatch):
                        "postgresql://postgres.abc:pw@aws-0-eu.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require")
     assert config._database_url() == ("postgresql+psycopg://postgres.abc:pw@aws-0-eu.pooler.supabase.com:6543"
                                       "/postgres?sslmode=require")
+
+
+def test_password_with_special_characters(monkeypatch):
+    from sqlalchemy.engine import make_url
+
+    from app import config
+
+    for var in ("PIS_DATABASE_URL", "POSTGRES_URL"):
+        monkeypatch.delenv(var, raising=False)
+    host = "@pooler.example.com:6543/postgres"
+    cases = {"Sample@99.": "Sample@99.", "Sample%4099.": "Sample@99.", "p/ss?w#rd@x": "p/ss?w#rd@x"}
+    for raw, expected in cases.items():
+        monkeypatch.setenv("DATABASE_URL", "postgresql://postgres.abc:" + raw + host)
+        url = make_url(config._database_url())
+        assert url.host == "pooler.example.com"
+        assert url.port == 6543 and url.database == "postgres"
+        assert url.password == expected
+
+
+def test_database_failure_shows_page_not_crash(client, monkeypatch):
+    """An unreachable database yields a 503 explanation page, with the password hidden."""
+    import app.main as main
+
+    monkeypatch.setattr(main.settings, "database_url", "postgresql+psycopg://u:FakeSecret1@db.invalid/x")
+    monkeypatch.setattr(main, "_initialised", False)
+
+    def fail():
+        raise RuntimeError("password authentication failed for FakeSecret1")
+    monkeypatch.setattr(main, "init_db", fail)
+    r = client.get("/")
+    assert r.status_code == 503
+    assert "Could not connect to the database" in r.text
+    assert "FakeSecret1" not in r.text and "****" in r.text
