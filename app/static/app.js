@@ -25,6 +25,20 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const fmt = (v, digits = 0) => (v === null || v === undefined || v === "" ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 }));
 const can = (role) => state.user && ROLE_LEVEL[state.user.role] >= ROLE_LEVEL[role];
 
+/* All 261 MMDAs (embedded in the page): [name, region, capital]. */
+const MMDAS = window.PIS_MMDAS || [];
+const MMDA_REGION = Object.fromEntries(MMDAS.map(([n, r]) => [n, r]));
+const MMDA_REGIONS = [...new Set(MMDAS.map(([, r]) => r))].sort((a, b) =>
+  (a === "Greater Accra" ? -1 : b === "Greater Accra" ? 1 : a.localeCompare(b)));
+/* <option>s for an MMDA drop-down, grouped by region. Keeps an unlisted current value. */
+function mmdaOptions(value, blank = "— Select MMDA —") {
+  const v = value || "";
+  const extra = v && !MMDA_REGION[v] ? `<option value="${esc(v)}" selected>${esc(v)} (not in official list)</option>` : "";
+  return `<option value="">${esc(blank)}</option>${extra}` + MMDA_REGIONS.map((region) =>
+    `<optgroup label="${esc(region)} Region">${MMDAS.filter(([, r]) => r === region)
+      .map(([n]) => `<option value="${esc(n)}"${n === v ? " selected" : ""}>${esc(n)}</option>`).join("")}</optgroup>`).join("");
+}
+
 function toast(msg, isErr = false) {
   const t = $("#toast");
   t.textContent = msg;
@@ -183,7 +197,7 @@ function filterFormHTML(withSearch = true) {
     ${withSearch ? '<label>Search<input name="q" placeholder="address, client, notes…"></label>' : ""}
     <label>Category<select name="category"><option value="">All</option><option value="valuation">Valuation</option><option value="cost">Construction cost</option><option value="housing">Housing</option></select></label>
     <label>Location<input name="location" list="dl-locations"></label>
-    <label>District (MMDA)<input name="district" list="dl-districts"></label>
+    <label>MMDA<select name="district">${mmdaOptions("", "All MMDAs")}</select></label>
     <label>City<input name="city" list="dl-cities"></label>
     <label>Property type<input name="property_type" list="dl-types"></label>
     <label>Purpose<input name="purpose"></label>
@@ -354,6 +368,9 @@ state.lastTab = "property";
 function fieldHTML([key, label, kind], rec) {
   const v = rec[key] ?? "";
   if (kind === "text") return `<label class="wide">${esc(label)}<textarea name="${key}" rows="2">${esc(v)}</textarea></label>`;
+  if (kind === "mmda") {
+    return `<label>${esc(label)} <span class="muted small">(${MMDAS.length})</span><select name="${key}" class="mmda-select">${mmdaOptions(v)}</select></label>`;
+  }
   if (SELECTS[kind]) {
     const opts = SELECTS[kind].includes(v) || !v ? SELECTS[kind] : [v, ...SELECTS[kind]];
     return `<label>${esc(label)}<select name="${key}"><option value=""></option>${opts.map((o) => `<option ${o === v ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
@@ -414,6 +431,10 @@ function initRecordEditor(el) {
   show(state.lastTab);
   const att = $(".attach-panel", el);
   if (att && att.dataset.recordId) loadAttachments(att, att.dataset.recordId);
+  const mmda = $("select[name=district]", el), region = $("[name=region]", el);
+  if (mmda && region) mmda.addEventListener("change", () => {
+    if (!region.value.trim() && MMDA_REGION[mmda.value]) region.value = MMDA_REGION[mmda.value];
+  });
 }
 
 async function loadAttachments(box, recordId) {
@@ -712,7 +733,7 @@ $("#export-docx").addEventListener("click", () => evidenceExport("docx"));
 /* ---------------- Spreadsheet view (edit records like Excel, in the website) ---------------- */
 const GRID_COLS = [
   ["record_date", "Date", "date"], ["category", "Category", "cat"], ["gps_address", "GPS address"],
-  ["location", "Location"], ["district", "MMDA", "list:dl-districts"], ["city", "City"],
+  ["location", "Location"], ["district", "MMDA", "mmda"], ["city", "City"],
   ["region", "Region", "list:dl-regions"], ["property_type", "Property type", "list:dl-types"], ["client", "Client"],
   ["purpose", "Purpose", "list:dl-purposes"], ["basis_of_value", "Basis of value", "list:dl-bases"], ["valuer", "Valuer"],
   ["property_name", "Property name / no."], ["owner", "Owner"], ["tenure", "Tenure", "list:dl-tenure"],
@@ -731,6 +752,7 @@ function sheetCell(rec, [key, , kind]) {
   v = v ?? "";
   const ro = can("junior") ? "" : " disabled";
   const common = `data-id="${rec.id}" data-key="${key}" data-kind="${kind || ""}"${ro}`;
+  if (kind === "mmda") return `<select ${common}>${mmdaOptions(v, "")}</select>`;
   if (kind === "cat") return `<select ${common}>${["valuation", "cost", "housing"].map((c) => `<option ${c === v ? "selected" : ""}>${c}</option>`).join("")}</select>`;
   const type = kind === "num" ? "number" : kind === "date" ? "date" : "text";
   const list = kind && kind.startsWith("list:") ? ` list="${kind.slice(5)}"` : "";
