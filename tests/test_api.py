@@ -250,3 +250,14 @@ def test_vercel_setup_guard(client, monkeypatch):
     monkeypatch.setattr(config.settings, "admin_password", "A-strong-password-1")
     monkeypatch.setattr(config.settings, "database_url", "postgresql+psycopg://u@h/db")
     assert config.settings.deployment_problems() == []
+
+
+def test_database_url_normalisation(monkeypatch):
+    from app import config
+
+    for var in ("PIS_DATABASE_URL", "POSTGRES_URL"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("DATABASE_URL",
+                       "postgresql://postgres.abc:pw@aws-0-eu.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require")
+    assert config._database_url() == ("postgresql+psycopg://postgres.abc:pw@aws-0-eu.pooler.supabase.com:6543"
+                                      "/postgres?sslmode=require")

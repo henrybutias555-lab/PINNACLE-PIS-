@@ -35,6 +35,12 @@ def _database_url() -> str:
         url = "postgresql+psycopg://" + url[len("postgres://"):]
     elif url.startswith("postgresql://"):
         url = "postgresql+psycopg://" + url[len("postgresql://"):]
+    # Drop Prisma-style flags (e.g. Supabase's "?pgbouncer=true") that libpq rejects.
+    if "?" in url:
+        from urllib.parse import parse_qsl, urlencode
+        base, query = url.split("?", 1)
+        params = [(k, v) for k, v in parse_qsl(query) if k not in ("pgbouncer", "connection_limit", "schema")]
+        url = base + ("?" + urlencode(params) if params else "")
     return url
 
 

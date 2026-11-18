@@ -20,7 +20,10 @@ def _make_engine(url: str):
         return create_engine(url, connect_args={"check_same_thread": False})
     # Serverless instances are frozen between requests; keep the pool small and
     # check connections before use so stale ones are replaced.
-    return create_engine(url, pool_pre_ping=True, pool_size=2, max_overflow=3, pool_recycle=300)
+    # prepare_threshold=None: transaction-mode poolers (Supabase Supavisor port 6543,
+    # PgBouncer, Neon pooled URLs) do not support server-side prepared statements.
+    return create_engine(url, pool_pre_ping=True, pool_size=2, max_overflow=3, pool_recycle=300,
+                         connect_args={"prepare_threshold": None})
 
 
 engine = _make_engine(settings.database_url)
