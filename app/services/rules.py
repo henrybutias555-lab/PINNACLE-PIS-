@@ -264,7 +264,7 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
     record["title"] = _labelled(text, ["title", "subject", "re", "property"]) or None
     record["address"] = _labelled(text, ["property address", "address", "site"])
     record["gps_address"] = find_gps(text)
-    record["location"] = _labelled(text, ["location", "area", "neighbourhood", "neighborhood", "suburb", "district"])
+    record["location"] = _labelled(text, ["location", "neighbourhood", "neighborhood", "suburb", "area", "locality"])
     record["district"] = _labelled(text, ["mmda", "district assembly", "municipal assembly", "metropolitan assembly",
                                           "assembly", "local authority", "district"])
     record["city"] = _labelled(text, ["city", "town"])

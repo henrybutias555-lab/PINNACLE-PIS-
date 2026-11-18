@@ -772,3 +772,54 @@ def test_new_sections_in_excel_and_import(client, admin):
     assert res["updated"] == 1, res
     rec = client.get(f"/api/records/{rid}", headers=admin).json()
     assert rec["forced_sale_value"] == 650000 and rec["inspection_date"] == "2025-02-14"
+
+
+def test_mmda_rejects_area_descriptions():
+    from app.services import places, rules
+
+    ex = lambda t: rules.extract("VALUATION REPORT\n" + t + "\nMarket value: GHS 1,000,000")["records"][0]
+    r = ex("Location: Central Business District, Accra")
+    assert (r["location"], r["district"]) == ("Central Business District", "Accra Metropolitan")
+    r = ex("District: Central Business District\nCity: Accra")
+    assert (r["location"], r["district"]) == ("Central Business District", "Accra Metropolitan")
+    r = ex("The property is located in the Central Business District of Accra.")
+    assert (r["location"], r["district"], r["city"]) == ("Central Business District", "Accra Metropolitan", "Accra")
+    assert ex("District: adentan municipal")["district"] == "Adentan Municipal"
+    assert "location" not in ex("District: adentan municipal")
+    assert ex("Shai-Osudoku District Assembly")["district"] == "Shai-Osudoku District"
+    for bad in ("Central Business District", "Industrial Area", "Residential District", "Commercial District"):
+        assert places.normalise_mmda(bad) is None, bad
+    assert places.normalise_mmda("accra metropolitan assembly") == "Accra Metropolitan"
+    assert places.normalise_mmda("Nkoranza South Municipal") == "Nkoranza South Municipal"  # any real-looking assembly
+    assert places.normalise_mmda("Bosomtwe District") is None  # "X District" needs "Assembly" unless known
+    assert places.normalise_mmda("Bosomtwe District Assembly", said_assembly=True) == "Bosomtwe District"
+
+
+def test_ai_mmda_answer_is_checked(client, admin, monkeypatch):
+    from app.config import Settings
+    from app.services import llm
+
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {"report_type": "valuation", "records": [
+        {"category": "valuation", "location": "Adabraka", "city": "Accra", "district": "Central Business District",
+         "capital_value": 5000000}]})
+    rep = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", (
+        "cbd.txt", b"VALUATION REPORT\nThe property lies within the Korle Klottey Municipal Assembly.", "text/plain"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert rec["district"] == "Korle Klottey Municipal"  # wrong AI value replaced by the assembly named in the report
+    assert rec["location"] == "Adabraka"
+
+
+def test_startup_corrects_saved_non_assembly_mmda(client, admin):
+    from app.main import _fix_mmda_values
+
+    rid = client.post("/api/records", headers=admin, json={"category": "valuation", "city": "Accra",
+                                                        "district": "Central Business District"}).json()["id"]
+    keep = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Osu",
+                                                         "district": "Korle Klottey Municipal"}).json()["id"]
+    assert _fix_mmda_values() >= 1
+    r = client.get(f"/api/records/{rid}", headers=admin).json()
+    assert (r["location"], r["district"]) == ("Central Business District", "Accra Metropolitan")
+    assert client.get(f"/api/records/{keep}", headers=admin).json()["district"] == "Korle Klottey Municipal"
+    assert _fix_mmda_values() == 0  # nothing left to fix
+    assert "mmda_corrected" in {a["action"] for a in client.get("/api/activity", headers=admin).json()}

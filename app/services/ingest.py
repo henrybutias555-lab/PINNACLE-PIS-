@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Report
-from . import llm, rules
+from . import llm, places, rules
 from .text_extract import extract_text
 
 log = logging.getLogger(__name__)
@@ -84,6 +84,16 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         rec.setdefault("currency", settings.default_currency)
         rec.setdefault("category", draft.get("report_type") or "valuation")
         _derive_rates(rec)
+        if report.extraction_method == "ai":
+            # Check the AI's place fields and fill blanks from the report text with the built-in rules.
+            place = places.resolve(rec.get("location"), rec.get("address"), rec.get("city"), rec.get("region"),
+                                   report.raw_text or "", rec.get("district"))
+            for key, value in place.items():
+                if key == "district" or not rec.get(key):
+                    if value:
+                        rec[key] = value
+                    elif key == "district":
+                        rec.pop("district", None)
     report.draft = draft
     report.report_type = draft.get("report_type")
     report.title = (draft.get("title") or report.filename)[:500]
