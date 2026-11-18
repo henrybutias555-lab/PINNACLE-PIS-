@@ -18,7 +18,7 @@ from .auth import hash_password
 from .config import settings
 from .database import ENGINE_ERROR, Base, SessionLocal, add_missing_columns, engine, ensure_schema, safe_url
 from .models import User
-from .routers import auth_users, intelligence, records, reports
+from .routers import auth_users, imports, intelligence, records, reports
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("pis")
@@ -157,6 +157,7 @@ app.include_router(auth_users.router)
 app.include_router(reports.router)
 app.include_router(records.router)
 app.include_router(intelligence.router)
+app.include_router(imports.router)
 
 
 @app.get("/healthz", include_in_schema=False)

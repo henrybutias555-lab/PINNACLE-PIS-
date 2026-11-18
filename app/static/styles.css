@@ -153,3 +153,20 @@ label.changed input, label.changed select, label.changed textarea { border-color
 .update-bar { position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); z-index: 200; display: flex;
   gap: .75rem; align-items: center; background: var(--surface); color: var(--text); border: 1px solid var(--brand);
   border-radius: 10px; padding: .6rem .9rem; box-shadow: 0 6px 24px rgba(0,0,0,.25); max-width: calc(100vw - 32px); }
+
+/* Spreadsheet view */
+.sheet-bar { margin-bottom: .5rem; }
+.sheet-wrap { overflow: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: 8px; }
+table.sheet { border-collapse: separate; border-spacing: 0; font-size: .85rem; }
+table.sheet th { position: sticky; top: 0; z-index: 2; background: var(--accent); border-bottom: 1px solid var(--border); }
+table.sheet td, table.sheet th { padding: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+table.sheet th { padding: .4rem .5rem; }
+table.sheet .sticky-col { position: sticky; left: 0; z-index: 1; background: var(--surface); padding: .3rem .5rem; text-align: right; }
+table.sheet th.sticky-col { z-index: 3; background: var(--accent); }
+table.sheet input, table.sheet select { border: none; border-radius: 0; width: 100%; min-width: 9rem; background: transparent; padding: .35rem .45rem; }
+table.sheet input[type=number] { min-width: 7rem; text-align: right; }
+table.sheet input:focus, table.sheet select:focus { outline: 2px solid var(--brand); outline-offset: -2px; background: var(--surface); }
+table.sheet .dirty { background: rgba(201,162,39,.22); }
+.import-list { max-height: 45vh; overflow: auto; padding-left: 1.2rem; }
+.import-list.error { color: var(--danger); }
+fieldset legend { font-weight: 600; color: var(--text); }

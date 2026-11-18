@@ -64,6 +64,7 @@ class RecordBase(BaseModel):
     category: Category
     title: str | None = None
     address: str | None = None
+    gps_address: str | None = None
     location: str | None = None
     district: str | None = None
     city: str | None = None
@@ -77,6 +78,9 @@ class RecordBase(BaseModel):
 
     valuation_basis: str | None = None
     method: str | None = None
+    property_valued: str | None = None
+    basis_of_value: str | None = None
+    valuer: str | None = None
     capital_value: float | None = None
     annual_rent: float | None = None
     yield_pct: float | None = None

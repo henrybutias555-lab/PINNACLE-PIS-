@@ -290,25 +290,46 @@ async function loadReports() {
 }
 
 /* Field definitions for the record editor */
-const COMMON_FIELDS = [
-  ["title", "Title / project"], ["address", "Address", "wide"], ["location", "Location / area"],
-  ["district", "District (MMDA)", "mmda"], ["city", "City"], ["region", "Region"],
-  ["property_type", "Property type"], ["purpose", "Purpose"], ["client", "Client"], ["record_date", "Date", "date"],
-  ["currency", "Currency"], ["size_sqm", "Size / GFA (m²)", "num"],
+/* Record editor layout: an Address section and, for valuations, a Valuation details section. */
+const ADDRESS_FIELDS = [
+  ["gps_address", "1. GPS address", "gps"], ["location", "2. Location", "loc"], ["district", "3. MMDA", "mmda"],
+  ["region", "4. Region", "region"], ["property_type", "5. Property type", "ptype"], ["client", "6. Client"],
+  ["city", "City / town"], ["address", "Street address / landmark", "wide"],
+];
+const REPORT_FIELDS = [
+  ["title", "Title / project"], ["record_date", "Date of valuation / report", "date"], ["currency", "Currency"],
+  ["size_sqm", "Size / GFA (m²)", "num"],
+];
+const VALUATION_DETAILS = [
+  ["purpose", "1. Purpose", "purpose"], ["property_valued", "2. Property valued", "text"],
+  ["basis_of_value", "3. Basis of value", "basis"], ["assumptions", "4. Assumptions / special assumptions", "text"],
+  ["valuer", "5. Valuer identity", "wide"], ["capital_value", "6. Opinion of value (capital)", "num"],
+  ["annual_rent", "Opinion of value (annual rent)", "num"],
+];
+const VALUATION_FIGURES = [
+  ["method", "Method of valuation"], ["valuation_basis", "Capital / rental / both"], ["yield_pct", "Yield %", "num"],
+  ["value_per_sqm", "Value / m²", "num"], ["rent_per_sqm", "Rent / m² p.a.", "num"],
 ];
 const CATEGORY_FIELDS = {
-  valuation: [["valuation_basis", "Basis (capital/rental/both)"], ["method", "Method"], ["capital_value", "Capital value", "num"], ["annual_rent", "Annual rent", "num"],
-    ["yield_pct", "Yield %", "num"], ["value_per_sqm", "Value / m²", "num"], ["rent_per_sqm", "Rent / m² p.a.", "num"], ["assumptions", "Assumptions", "text"]],
-  cost: [["total_cost", "Total cost", "num"], ["cost_per_sqm", "Cost / m²", "num"], ["specification", "Specification"]],
-  housing: [["avg_price", "Average price", "num"], ["avg_monthly_rent", "Average monthly rent", "num"], ["supply_units", "Supply (units)", "int"],
+  valuation: VALUATION_FIGURES,
+  cost: [["purpose", "Purpose", "purpose"], ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Cost / m²", "num"], ["specification", "Specification"]],
+  housing: [["purpose", "Purpose", "purpose"], ["avg_price", "Average price", "num"], ["avg_monthly_rent", "Average monthly rent", "num"], ["supply_units", "Supply (units)", "int"],
     ["demand_level", "Demand level"], ["affordability_ratio", "Affordability ratio", "num"], ["stock_notes", "Housing stock notes", "text"]],
 };
+const COMMON_FIELDS = [...ADDRESS_FIELDS, ...REPORT_FIELDS];  // used elsewhere for "all common fields"
 const BREAKDOWN_KEYS = ["preliminaries", "substructure", "superstructure", "finishes", "services", "external_works", "contingency", "other"];
+const LISTS = { mmda: "dl-districts", loc: "dl-locations", region: "dl-regions", ptype: "dl-types", purpose: "dl-purposes", basis: "dl-bases" };
+const HINTS = { gps: "e.g. GA-183-8164", mmda: "e.g. Adentan Municipal", basis: "e.g. Market Value", purpose: "e.g. Mortgage" };
 
 function fieldHTML([key, label, kind], rec) {
   const v = rec[key] ?? "";
   if (kind === "text") return `<label class="wide">${esc(label)}<textarea name="${key}" rows="2">${esc(v)}</textarea></label>`;
-  if (kind === "mmda") return `<label>${esc(label)}<input type="text" name="${key}" value="${esc(v)}" list="dl-districts" placeholder="e.g. Adentan Municipal"></label>`;
+  if (LISTS[kind] || kind === "gps") {
+    const list = LISTS[kind] ? ` list="${LISTS[kind]}"` : "";
+    const hint = HINTS[kind] ? ` placeholder="${HINTS[kind]}"` : "";
+    const extra = kind === "gps" ? ' autocapitalize="characters" spellcheck="false"' : "";
+    return `<label>${esc(label)}<input type="text" name="${key}" value="${esc(v)}"${list}${hint}${extra}></label>`;
+  }
   const type = kind === "num" || kind === "int" ? "number" : kind === "date" ? "date" : "text";
   const step = kind === "num" ? ' step="any"' : "";
   return `<label class="${kind === "wide" ? "wide" : ""}">${esc(label)}<input type="${type}"${step} name="${key}" value="${esc(v)}" data-kind="${kind || ""}"></label>`;
@@ -318,12 +339,16 @@ function recordEditorHTML(rec, idx) {
   const cat = rec.category || "valuation";
   const comps = rec.comparables || [];
   const bd = rec.cost_breakdown || {};
+  const grid = (fields) => `<div class="form-grid">${fields.map((f) => fieldHTML(f, rec)).join("")}</div>`;
   return `<div class="review-record" data-idx="${idx}">
     <div class="row between"><strong>Record ${idx + 1}</strong>
       <div class="row gap"><label>Category<select name="category">${["valuation", "cost", "housing"].map((c) => `<option ${c === cat ? "selected" : ""}>${c}</option>`).join("")}</select></label>
       <button type="button" class="btn small danger rm-record">Remove</button></div></div>
-    <div class="form-grid">${COMMON_FIELDS.map((f) => fieldHTML(f, rec)).join("")}</div>
-    <fieldset><legend>${esc(cat)} details</legend><div class="form-grid">${CATEGORY_FIELDS[cat].map((f) => fieldHTML(f, rec)).join("")}</div></fieldset>
+    <fieldset><legend>Address</legend>${grid(ADDRESS_FIELDS)}</fieldset>
+    <fieldset><legend>Report</legend>${grid(REPORT_FIELDS)}</fieldset>
+    ${cat === "valuation" ? `<fieldset><legend>Valuation details</legend>${grid(VALUATION_DETAILS)}</fieldset>
+      <fieldset><legend>Method &amp; figures</legend>${grid(VALUATION_FIGURES)}</fieldset>`
+      : `<fieldset><legend>${esc(cat)} details</legend>${grid(CATEGORY_FIELDS[cat])}</fieldset>`}
     ${cat === "cost" ? `<fieldset><legend>Elemental cost breakdown</legend><div class="form-grid">${BREAKDOWN_KEYS.map((k) => `<label>${k.replace("_", " ")}<input type="number" step="any" name="bd_${k}" value="${esc(bd[k] ?? "")}"></label>`).join("")}</div></fieldset>` : ""}
     ${cat === "valuation" ? `<fieldset><legend>Comparables (${comps.length})</legend>${comps.length ? table(["Address", "Date", "Price", "Rent", "Size m²", "Price/m²", "Notes"], comps.map((c) => [esc(c.address), esc(c.date), { v: fmt(c.price), num: true }, { v: fmt(c.rent), num: true }, { v: fmt(c.size_sqm), num: true }, { v: fmt(c.price_per_sqm), num: true }, esc(c.notes)])) : '<p class="muted small">None extracted.</p>'}</fieldset>` : ""}
     <div class="form-grid"><label class="wide">Tags (comma separated)<input name="tags" value="${esc((rec.tags || []).join(", "))}"></label>
@@ -485,17 +510,20 @@ async function loadRecords() {
   const f = formData($("#record-filters"));
   const d = await api("/api/records?" + qs({ ...f, page: state.recordsPage, page_size: 25 }));
   if (!d.items.length) { $("#records-table").innerHTML = '<p class="muted">No records match these filters.</p>'; $("#records-pager").innerHTML = ""; return; }
+  if (state.sheet.on) { state.sheet.items = d.items; renderSheet(); } else {
   $("#records-table").innerHTML = table(["Date", "Category", "Location", "Type", "Address / title", { t: "Size m²", num: true }, { t: "Key figure", num: true }, { t: "Rate / m²", num: true }, "Tags"],
     d.items.map((r) => [esc(r.record_date || "—"), esc(r.category), esc([r.location, r.district, r.city].filter(Boolean).join(", ") || "—"), esc(r.property_type || "—"),
       esc(r.address || r.title || "—"), { v: fmt(r.size_sqm), num: true }, { v: keyFigure(r), num: true }, { v: rateFigure(r), num: true }, (r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join("")]),
     { clickable: true });
   $$("#records-table tbody tr").forEach((tr) => tr.addEventListener("click", () => openRecord(d.items[tr.dataset.i])));
+  }
   const pages = Math.max(1, Math.ceil(d.total / d.page_size));
   $("#records-pager").innerHTML = `<span class="muted small">${d.total} records</span>
     <button class="btn small" ${d.page <= 1 ? "disabled" : ""} id="pg-prev">‹ Prev</button><span>${d.page} / ${pages}</span>
     <button class="btn small" ${d.page >= pages ? "disabled" : ""} id="pg-next">Next ›</button>`;
-  $("#pg-prev").onclick = () => { state.recordsPage--; loadRecords(); };
-  $("#pg-next").onclick = () => { state.recordsPage++; loadRecords(); };
+  const leave = () => !Object.keys(state.sheet.dirty).length || confirm("Leave this page without saving your spreadsheet changes?");
+  $("#pg-prev").onclick = () => { if (leave()) { state.sheet.dirty = {}; state.recordsPage--; loadRecords(); } };
+  $("#pg-next").onclick = () => { if (leave()) { state.sheet.dirty = {}; state.recordsPage++; loadRecords(); } };
 }
 function keyFigure(r) {
   const c = r.currency || "";
@@ -548,6 +576,125 @@ function evidenceExport(format) {
 $("#export-csv").addEventListener("click", () => evidenceExport("csv"));
 $("#export-xlsx").addEventListener("click", () => evidenceExport("xlsx"));
 $("#export-docx").addEventListener("click", () => evidenceExport("docx"));
+
+/* ---------------- Spreadsheet view (edit records like Excel, in the website) ---------------- */
+const GRID_COLS = [
+  ["record_date", "Date", "date"], ["category", "Category", "cat"], ["gps_address", "GPS address"],
+  ["location", "Location"], ["district", "MMDA", "list:dl-districts"], ["city", "City"],
+  ["region", "Region", "list:dl-regions"], ["property_type", "Property type", "list:dl-types"], ["client", "Client"],
+  ["purpose", "Purpose", "list:dl-purposes"], ["basis_of_value", "Basis of value", "list:dl-bases"], ["valuer", "Valuer"],
+  ["address", "Street address"], ["size_sqm", "Size m²", "num"], ["capital_value", "Opinion of value", "num"],
+  ["annual_rent", "Annual rent", "num"], ["yield_pct", "Yield %", "num"], ["method", "Method"],
+  ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Cost / m²", "num"], ["avg_price", "Avg price", "num"],
+  ["avg_monthly_rent", "Avg rent / month", "num"], ["currency", "Currency"], ["tags", "Tags", "tags"], ["notes", "Notes"],
+];
+state.sheet = { on: false, items: [], dirty: {} };
+
+function sheetCell(rec, [key, , kind]) {
+  let v = rec[key];
+  if (kind === "tags") v = (v || []).join(", ");
+  v = v ?? "";
+  const ro = can("junior") ? "" : " disabled";
+  const common = `data-id="${rec.id}" data-key="${key}" data-kind="${kind || ""}"${ro}`;
+  if (kind === "cat") return `<select ${common}>${["valuation", "cost", "housing"].map((c) => `<option ${c === v ? "selected" : ""}>${c}</option>`).join("")}</select>`;
+  const type = kind === "num" ? "number" : kind === "date" ? "date" : "text";
+  const list = kind && kind.startsWith("list:") ? ` list="${kind.slice(5)}"` : "";
+  return `<input type="${type}"${type === "number" ? ' step="any"' : ""}${list} value="${esc(v)}" ${common}>`;
+}
+
+function renderSheet() {
+  const { items } = state.sheet;
+  if (!items.length) { $("#records-table").innerHTML = '<p class="muted">No records match these filters.</p>'; return; }
+  const head = `<tr><th class="sticky-col">Ref</th>${GRID_COLS.map(([, l]) => `<th>${esc(l)}</th>`).join("")}</tr>`;
+  const body = items.map((r) => `<tr><td class="sticky-col muted">${r.id}</td>${GRID_COLS.map((c) => `<td>${sheetCell(r, c)}</td>`).join("")}</tr>`).join("");
+  $("#records-table").innerHTML = `<div class="sheet-bar row between">
+      <span class="muted small">Edit cells like a spreadsheet. Changed cells turn gold. ${can("junior") ? "" : "(Read-only for your role.)"}</span>
+      <span class="row gap"><button class="btn" id="sheet-undo" disabled>Undo changes</button>
+      <button class="btn primary" id="sheet-save" disabled>Save changes</button></span></div>
+    <div class="sheet-wrap"><table class="sheet"><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+  $$(".sheet [data-key]").forEach((el) => el.addEventListener(el.tagName === "SELECT" ? "change" : "input", () => {
+    const id = el.dataset.id, key = el.dataset.key;
+    const rec = items.find((x) => String(x.id) === id);
+    let val = el.value.trim();
+    if (el.dataset.kind === "num") val = val === "" ? null : Number(val);
+    else if (el.dataset.kind === "tags") val = val ? val.split(",").map((t) => t.trim()).filter(Boolean) : null;
+    else if (val === "") val = null;
+    const orig = rec[key];
+    const same = JSON.stringify(orig ?? null) === JSON.stringify(val) || (el.dataset.kind === "tags" && (orig || []).join(", ") === el.value.trim());
+    state.sheet.dirty[id] = state.sheet.dirty[id] || {};
+    if (same) delete state.sheet.dirty[id][key]; else state.sheet.dirty[id][key] = val;
+    if (!Object.keys(state.sheet.dirty[id]).length) delete state.sheet.dirty[id];
+    el.classList.toggle("dirty", !same);
+    updateSheetButtons();
+  }));
+  $("#sheet-save").onclick = saveSheet;
+  $("#sheet-undo").onclick = () => { state.sheet.dirty = {}; renderSheet(); };
+  updateSheetButtons();
+}
+
+function updateSheetButtons() {
+  const n = Object.values(state.sheet.dirty).reduce((a, d) => a + Object.keys(d).length, 0);
+  const save = $("#sheet-save"), undo = $("#sheet-undo");
+  if (!save) return;
+  save.disabled = undo.disabled = n === 0;
+  save.textContent = n ? `Save ${n} change${n === 1 ? "" : "s"}` : "Save changes";
+}
+
+async function saveSheet() {
+  const entries = Object.entries(state.sheet.dirty);
+  const btn = $("#sheet-save"); btn.disabled = true; btn.textContent = "Saving…";
+  const failed = [];
+  for (const [id, body] of entries) {
+    try { await api(`/api/records/${id}`, { method: "PATCH", body }); delete state.sheet.dirty[id]; }
+    catch (e) { failed.push(`Ref ${id}: ${e.message}`); }
+  }
+  toast(failed.length ? `Saved with problems: ${failed.join("; ")}` : `Saved ${entries.length} record${entries.length === 1 ? "" : "s"}`, failed.length > 0);
+  loadRecords(); loadFacets();
+}
+
+$("#sheet-toggle").addEventListener("click", () => {
+  if (state.sheet.on && Object.keys(state.sheet.dirty).length && !confirm("Leave the spreadsheet without saving your changes?")) return;
+  state.sheet.on = !state.sheet.on;
+  state.sheet.dirty = {};
+  $("#sheet-toggle").textContent = state.sheet.on ? "Table view" : "Spreadsheet view";
+  loadRecords();
+});
+
+/* ---------------- Import an edited Excel file ---------------- */
+$("#import-xlsx").addEventListener("click", () => $("#import-file").click());
+$("#import-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const fd = () => { const f = new FormData(); f.append("file", file); return f; };
+  let plan;
+  try { plan = await api("/api/imports/records/preview", { method: "POST", body: fd() }); }
+  catch (err) { toast(err.message, true); return; }
+  const show = (v) => (v === null || v === undefined || v === "" ? "(blank)" : Array.isArray(v) ? v.join(", ") : v);
+  const label = (k) => (GRID_COLS.find((c) => c[0] === k) || [k, k.replace(/_/g, " ")])[1];
+  const updates = plan.updates.map((u) => `<li><b>Ref ${u.id}</b> ${esc(u.label)} (row ${u.row}):<ul>${Object.entries(u.changes)
+    .map(([k, [a, b]]) => `<li>${esc(label(k))}: <s>${esc(show(a))}</s> → <b>${esc(show(b))}</b></li>`).join("")}</ul></li>`).join("");
+  const creates = plan.creates.map((c) => `<li>Row ${c.row}: new ${esc(c.values.category)} record ${esc(c.values.location || c.values.address || c.values.title || "")}</li>`).join("");
+  const errors = plan.errors.map((x) => `<li>Row ${x.row}: ${esc(x.error)}</li>`).join("");
+  const nothing = !plan.updates.length && !plan.creates.length;
+  openModal(`<h3>Import "${esc(file.name)}"</h3>
+    <p class="muted small">Sheet "${esc(plan.sheet)}" · ${plan.updates.length} to update · ${plan.creates.length} new · ${plan.unchanged} unchanged · ${plan.errors.length} with problems</p>
+    ${updates ? `<h4>Changes</h4><ul class="import-list">${updates}</ul>` : ""}
+    ${creates ? `<h4>New records</h4><ul class="import-list">${creates}</ul>` : ""}
+    ${errors ? `<h4>Skipped rows</h4><ul class="import-list error">${errors}</ul>` : ""}
+    ${nothing ? '<p>No changes found in this file.</p>' : ""}
+    <div class="row gap">${nothing ? "" : '<button class="btn primary" id="import-apply">Apply changes</button>'}<button class="btn" onclick="closeModal()">Cancel</button></div>`);
+  const applyBtn = $("#import-apply");
+  if (applyBtn) applyBtn.onclick = async () => {
+    applyBtn.disabled = true; applyBtn.textContent = "Applying…";
+    try {
+      const r = await api("/api/imports/records/apply", { method: "POST", body: fd() });
+      closeModal();
+      toast(`Excel imported: ${r.updated} updated, ${r.created} added${r.errors.length ? `, ${r.errors.length} rows skipped` : ""}`);
+      loadRecords(); loadFacets();
+    } catch (err) { toast(err.message, true); applyBtn.disabled = false; applyBtn.textContent = "Apply changes"; }
+  };
+});
 
 /* ---------------- Intelligence ---------------- */
 const METRIC_OPTIONS = [["value_per_sqm", "Capital value / m²"], ["capital_value", "Capital value"], ["annual_rent", "Annual rent"], ["rent_per_sqm", "Rent / m²"],

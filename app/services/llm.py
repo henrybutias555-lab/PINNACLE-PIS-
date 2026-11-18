@@ -41,7 +41,9 @@ _BREAKDOWN = {
 }
 _RECORD_PROPS = {
     "category": {"type": "string", "enum": ["valuation", "cost", "housing"]},
-    "title": _STR, "address": _STR, "location": _STR,
+    "title": _STR, "address": _STR,
+    "gps_address": {"type": ["string", "null"], "description": "Ghana Post GPS digital address, e.g. GA-183-8164"},
+    "location": _STR,
     "district": {"type": ["string", "null"],
                  "description": "Ghana MMDA (Metropolitan/Municipal/District Assembly), e.g. 'Adentan Municipal'"},
     "city": _STR, "region": _STR,
@@ -50,7 +52,11 @@ _RECORD_PROPS = {
     "currency": {"type": "string", "description": "ISO currency code, e.g. GHS, USD"},
     "size_sqm": _NUM,
     "valuation_basis": {"type": ["string", "null"], "enum": ["capital", "rental", "both", None]},
-    "method": _STR, "capital_value": _NUM, "annual_rent": _NUM, "yield_pct": _NUM,
+    "method": _STR,
+    "property_valued": {"type": ["string", "null"], "description": "Short description of the property valued"},
+    "basis_of_value": {"type": ["string", "null"], "description": "e.g. Market Value, Forced Sale Value, Market Rent"},
+    "valuer": {"type": ["string", "null"], "description": "Valuer identity: name, qualifications, firm"},
+    "capital_value": _NUM, "annual_rent": _NUM, "yield_pct": _NUM,
     "value_per_sqm": _NUM, "rent_per_sqm": _NUM, "assumptions": _STR,
     "comparables": {"type": ["array", "null"], "items": _COMPARABLE},
     "total_cost": _NUM, "cost_per_sqm": _NUM,
@@ -94,8 +100,12 @@ Pinnacle Estate Surveyors (a real estate valuation, construction cost and housin
 Read the professional report provided and extract structured data for the firm's market database.
 
 Categories:
-- "valuation": capital or rental valuations. Capture the subject property's adopted value(s), method, yield, \
-basis, assumptions, and EVERY comparable listed (address, date, price or rent, size, price per m²).
+- "valuation": capital or rental valuations. Capture: purpose; the property valued (a short description); \
+the basis of value (e.g. Market Value, Forced Sale Value); assumptions and special assumptions; the valuer's identity \
+(name, qualifications, firm); the opinion of value (capital_value, and annual_rent for rental valuations); method, \
+yield; and EVERY comparable listed (address, date, price or rent, size, price per m²).
+- Address details: the Ghana Post GPS digital address (gps_address, e.g. "GA-183-8164"), location, MMDA \
+(district), region, property type and client.
 - "cost": construction cost data. Capture total cost, cost per m² of gross floor area, and the elemental \
 breakdown (preliminaries, substructure, superstructure, finishes, services, external works, contingency, other).
 - "housing": residential market data. Capture average prices, average monthly rents, supply in units, demand \

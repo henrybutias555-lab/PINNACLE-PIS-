@@ -51,6 +51,27 @@ def record_from_payload(payload: RecordIn, user: User) -> Record:
     return rec
 
 
+def apply_changes(rec: Record, body: dict) -> None:
+    """Validate and apply a partial update, recomputing figures derived from changed inputs.
+    Raises pydantic.ValidationError for invalid values."""
+    current = RecordIn.model_validate(RecordOut.model_validate(rec).model_dump()).model_dump()
+    merged = RecordIn.model_validate({**current, **body})
+    data = merged.model_dump(mode="python")
+    if data.get("comparables") is not None:
+        data["comparables"] = merged.model_dump(mode="json")["comparables"]
+    for key in body:
+        setattr(rec, key, data[key])
+    if {"size_sqm", "capital_value"} & set(body) and "value_per_sqm" not in body:
+        rec.value_per_sqm = None
+    if {"size_sqm", "annual_rent"} & set(body) and "rent_per_sqm" not in body:
+        rec.rent_per_sqm = None
+    if {"size_sqm", "total_cost"} & set(body) and "cost_per_sqm" not in body:
+        rec.cost_per_sqm = None
+    if {"capital_value", "annual_rent"} & set(body) and "yield_pct" not in body:
+        rec.yield_pct = None
+    _derive(rec)
+
+
 @router.get("", response_model=dict)
 def search(
     f: RecordFilters = Depends(filters_dep),
@@ -120,30 +141,13 @@ def update_record(record_id: int, body: dict, request: Request, user: User = Dep
     rec = db.get(Record, record_id)
     if rec is None:
         raise HTTPException(404, "Record not found")
-    current = RecordIn.model_validate(RecordOut.model_validate(rec).model_dump()).model_dump()
-    allowed = set(RecordIn.model_fields)
-    unknown = set(body) - allowed
+    unknown = set(body) - set(RecordIn.model_fields)
     if unknown:
         raise HTTPException(422, f"Unknown fields: {', '.join(sorted(unknown))}")
     try:
-        merged = RecordIn.model_validate({**current, **body})
+        apply_changes(rec, body)
     except ValidationError as exc:
         raise HTTPException(422, exc.errors(include_url=False, include_context=False))
-    data = merged.model_dump(mode="python")
-    if data.get("comparables") is not None:
-        data["comparables"] = merged.model_dump(mode="json")["comparables"]
-    for key in body:
-        setattr(rec, key, data[key])
-    # Recompute derived values that depend on changed inputs.
-    if {"size_sqm", "capital_value"} & set(body) and "value_per_sqm" not in body:
-        rec.value_per_sqm = None
-    if {"size_sqm", "annual_rent"} & set(body) and "rent_per_sqm" not in body:
-        rec.rent_per_sqm = None
-    if {"size_sqm", "total_cost"} & set(body) and "cost_per_sqm" not in body:
-        rec.cost_per_sqm = None
-    if {"capital_value", "annual_rent"} & set(body) and "yield_pct" not in body:
-        rec.yield_pct = None
-    _derive(rec)
     db.commit()
     log_activity(db, user, "record_updated", f"record:{rec.id}", ", ".join(sorted(body)), request)
     return rec
