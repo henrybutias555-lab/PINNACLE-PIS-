@@ -142,9 +142,20 @@ def evidence_export(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """One-click comparable / cost / housing evidence table."""
+    """One-click comparable / cost / housing evidence table.
+
+    Without a category, Excel and CSV export every matching record (all categories)."""
     if not f.category:
-        raise HTTPException(422, "category is required (valuation, cost or housing)")
+        if format == "docx":
+            raise HTTPException(422, "Choose a category (valuation, cost or housing) for the Word evidence table")
+        records = filtered_records(db, f, limit=5000)
+        scope = f.describe()
+        log_activity(db, user, "records_exported", scope[:255], f"{len(records)} rows, {format}", request)
+        if format == "xlsx":
+            return Response(export.records_xlsx(records, scope), media_type=export.XLSX_MEDIA,
+                            headers={"Content-Disposition": 'attachment; filename="pis-records.xlsx"'})
+        return Response(export.records_csv(records), media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="pis-records.csv"'})
     if ids:
         wanted = {int(x) for x in ids.split(",") if x.strip().isdigit()}
         records = [r for r in filtered_records(db, RecordFilters(category=f.category)) if r.id in wanted]

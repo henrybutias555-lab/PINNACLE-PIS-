@@ -50,6 +50,7 @@ def _cell(value) -> str:
 def evidence_csv(records: list[Record], category: str) -> str:
     cols = COLUMNS[category]
     buf = io.StringIO()
+    buf.write("\ufeff")  # BOM so Excel reads ² and ₵ correctly
     writer = csv.writer(buf)
     writer.writerow(["Ref"] + [c[0] for c in cols])
     for r in records:
@@ -305,4 +306,35 @@ def analysis_xlsx(*, scope: str, summary: dict, breakdown_rows: list[dict], grou
         ws.add_chart(chart, f"G{start}")
 
     _records_sheet(book, records)
+    return book.bytes()
+
+
+def records_csv(records: list[Record]) -> str:
+    """Every field of every record, one row each (Excel opens this directly)."""
+    buf = io.StringIO()
+    buf.write("\ufeff")  # BOM so Excel reads ², ₵ and accents correctly
+    writer = csv.writer(buf)
+    writer.writerow([c[0] for c in RECORD_COLUMNS])
+    for r in records:
+        writer.writerow(["" if getattr(r, f) is None else _xl_value(getattr(r, f)) for _, f, _ in RECORD_COLUMNS])
+    return buf.getvalue()
+
+
+def records_xlsx(records: list[Record], scope: str) -> bytes:
+    """All matching records: one sheet with every field, plus an evidence sheet per category."""
+    book = _Book()
+    ws = book.sheet("All records", "Pinnacle Intelligence System: records",
+                    f"Pinnacle Estate Surveyors · {scope} · {len(records)} records · prepared {date.today().isoformat()}")
+    book.table(ws, [c[0] for c in RECORD_COLUMNS], [[getattr(r, f) for _, f, _ in RECORD_COLUMNS] for r in records],
+               [fmt for _, _, fmt in RECORD_COLUMNS])
+    for category, name in (("valuation", "Valuation evidence"), ("cost", "Cost evidence"), ("housing", "Housing data")):
+        subset = [r for r in records if r.category == category]
+        if not subset:
+            continue
+        cols = COLUMNS[category]
+        ws = book.sheet(name, TITLES[category])
+        fmts = [None] + ["yyyy-mm-dd" if f == "record_date" else "#,##0" if f in _MONEY_KEYS
+                         else "#,##0.00" if f == "size_sqm" else "0.00" if f in ("yield_pct", "affordability_ratio")
+                         else None for _, f in cols]
+        book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in subset], fmts)
     return book.bytes()

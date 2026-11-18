@@ -439,8 +439,8 @@ $("#new-record").addEventListener("click", () => openRecord(null));
 
 function evidenceExport(format) {
   const f = formData($("#record-filters"));
-  if (!f.category) { toast("Choose a category (valuation, cost or housing) in the filters first", true); return; }
-  download("/api/exports/evidence?" + qs({ ...f, format }), `evidence.${format}`).catch((e) => toast(e.message, true));
+  if (!f.category && format === "docx") { toast("Choose a category (valuation, cost or housing) for the Word table", true); return; }
+  download("/api/exports/evidence?" + qs({ ...f, format }), `pis-records.${format}`).catch((e) => toast(e.message, true));
 }
 $("#export-csv").addEventListener("click", () => evidenceExport("csv"));
 $("#export-xlsx").addEventListener("click", () => evidenceExport("xlsx"));
