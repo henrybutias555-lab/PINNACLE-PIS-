@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .auth import hash_password
 from .config import settings
-from .database import ENGINE_ERROR, Base, SessionLocal, engine, safe_url
+from .database import ENGINE_ERROR, Base, SessionLocal, engine, ensure_schema, safe_url
 from .models import User
 from .routers import auth_users, intelligence, records, reports
 
@@ -37,6 +37,7 @@ def init_db() -> None:
     with _init_lock:
         if _initialised:
             return
+        ensure_schema(engine)
         Base.metadata.create_all(engine)
         with SessionLocal() as db:
             if (db.scalar(select(func.count()).select_from(User)) or 0) == 0:
