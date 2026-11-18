@@ -112,14 +112,18 @@ def resolve(location: str | None, address: str | None, city: str | None, region:
         city = find_city(text[:6000])
     if not location and area:
         location = area[0]
+    if not location and re.search(r"central business district", text[:6000], re.I):
+        location = "Central Business District"
     if location:
         location = clean_location(location, city)
     region = region or find_region(fields) or find_region(text[:6000]) or (CITIES.get(city) if city else None)
     if region:
         region = re.sub(r"\s+Region$", "", region.strip(), flags=re.I)
+    given = district
+    district = normalise_mmda(district, said_assembly=bool(given and re.search(r"assembly", given, re.I)))
+    if given and not district and not location:
+        location = given  # e.g. "Central Business District" is a place, not an assembly
     district = district or find_mmda(fields) or find_mmda(text[:8000]) or mmda_for(location, city, fields)
-    if district:
-        district = re.sub(r"\s+Assembly$", "", district.strip(), flags=re.I)
     return {"location": location, "district": district, "city": city, "region": region}
 
 
@@ -163,6 +167,8 @@ AREA_MMDA: dict[str, str | None] = {
     "Teshie": "Ledzokuku Municipal", "Nungua": "Krowor Municipal", "Sakumono": "Tema West Municipal",
     "Ashaiman": "Ashaiman Municipal", "Kpone": "Kpone-Katamanso Municipal",
     "Prampram": "Ningo-Prampram District", "Dodowa": "Shai-Osudoku District", "Ada": "Ada East District",
+    "Makola": "Accra Metropolitan", "Tudu": "Accra Metropolitan", "Kantamanto": "Accra Metropolitan",
+    "Ridge": None, "North Ridge": None,
     # Kumasi area
     "Adum": "Kumasi Metropolitan", "Bantama": "Kumasi Metropolitan", "Nhyiaeso": "Kumasi Metropolitan",
     "Ahodwo": "Kumasi Metropolitan", "Danyame": "Kumasi Metropolitan",
@@ -191,6 +197,52 @@ _ASSEMBLY = re.compile(
 _NOT_PLACE = {"The", "This", "A", "An", "Of", "In", "Within", "Under", "Its", "Our", "And", "Local", "Government"}
 
 
+# Words that describe a kind of area, never the name of an assembly.
+_AREA_WORDS = {"central", "business", "commercial", "residential", "industrial", "financial", "school", "health",
+               "police", "electoral", "postal", "education", "planning", "mixed", "zone", "trade", "shopping"}
+
+
+def canonical_mmda(name: str | None) -> str | None:
+    """Known spelling of an MMDA name (case-insensitive), else None."""
+    if not name:
+        return None
+    key = re.sub(r"\s+assembly$", "", name.strip(), flags=re.I).lower()
+    for known in ALL_MMDAS:
+        if known.lower() == key:
+            return known
+    return None
+
+
+def looks_like_mmda(name: str | None, said_assembly: bool = False) -> bool:
+    """True for a plausible Metropolitan / Municipal / District Assembly name.
+    'Central Business District', 'Industrial Area' etc. are rejected."""
+    if not name:
+        return False
+    clean = re.sub(r"\s+assembly$", "", name.strip(), flags=re.I)
+    if canonical_mmda(clean):
+        return True
+    m = re.fullmatch(r"(.+?)\s+(Metropolitan|Municipal|District)", clean, re.I)
+    if not m:
+        return False
+    words = re.split(r"[\s-]+", m.group(1).lower())
+    if any(w in _AREA_WORDS for w in words) or len(words) > 5:
+        return False
+    # "X District" is a common way to describe an area; trust it only when called an Assembly.
+    return m.group(2).lower() != "district" or said_assembly
+
+
+def normalise_mmda(name: str | None, said_assembly: bool = False) -> str | None:
+    """Clean an MMDA value; None when it isn't one."""
+    if not looks_like_mmda(name, said_assembly):
+        return None
+    clean = re.sub(r"\s+assembly$", "", name.strip(), flags=re.I)
+    known = canonical_mmda(clean)
+    if known:
+        return known
+    head, kind = clean.rsplit(" ", 1)
+    return f"{head} {kind.title()}"
+
+
 def find_mmda(text: str) -> str | None:
     """An MMDA named in the text, e.g. '... within the Adentan Municipal Assembly'."""
     for m in _ASSEMBLY.finditer(text):
@@ -199,10 +251,11 @@ def find_mmda(text: str) -> str | None:
             words = words[1:]
         if not words or len(words) > 5:
             continue
-        name = " ".join(words)
-        if name.lower() in ("the", "local"):
-            continue
-        return f"{name} {m.group(2).title()}"
+        name = f"{' '.join(words)} {m.group(2).title()}"
+        said_assembly = bool(re.match(r"\s+(Assembly|Chief\s+Executive|Council)", text[m.end(2):], re.I))
+        found = normalise_mmda(name, said_assembly)
+        if found:
+            return found
     return None
 
 
@@ -218,7 +271,15 @@ def mmda_for(location: str | None, city: str | None, fields: str) -> str | None:
             hits.append((m.start(), -len(area), mmda))
     if hits:
         return sorted(hits)[0][2]  # may be None: a known area whose assembly isn't listed
+    if re.search(r"central business district|\bcbd\b|city cent(?:re|er)", f"{location or ''} {fields or ''}", re.I):
+        return CBD_MMDA.get(city or "")
     return CITY_MMDA.get(city or "")
+
+
+# The central business district of a city -> its assembly.
+CBD_MMDA = {"Accra": "Accra Metropolitan", "Kumasi": "Kumasi Metropolitan", "Tamale": "Tamale Metropolitan",
+            "Takoradi": "Sekondi-Takoradi Metropolitan", "Sekondi": "Sekondi-Takoradi Metropolitan",
+            "Cape Coast": "Cape Coast Metropolitan", "Tema": "Tema Metropolitan"}
 
 # Names offered in the District (MMDA) drop-down: Greater Accra in full, plus the
 # assemblies referenced above. Surveyors can still type any other MMDA.

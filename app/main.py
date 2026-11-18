@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import os
+import re
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -29,6 +30,29 @@ _init_lock = threading.Lock()
 _initialised = False
 
 
+def _fix_mmda_values() -> int:
+    """Records whose MMDA isn't an assembly (e.g. 'Central Business District'): move the
+    text to Location when that is empty, and re-derive the MMDA. Returns how many changed."""
+    from .models import ActivityLog, Record
+    from .services import places
+
+    changed = 0
+    with SessionLocal() as db:
+        for rec in db.scalars(select(Record).where(Record.district.is_not(None))):
+            if places.looks_like_mmda(rec.district, said_assembly=True) and not re.search(
+                    r"business|industrial|commercial|residential", rec.district, re.I):
+                continue
+            old = rec.district
+            if not rec.location:
+                rec.location = old
+            rec.district = places.mmda_for(rec.location, rec.city, " , ".join(x for x in (rec.location, rec.address) if x))
+            db.add(ActivityLog(action="mmda_corrected", target=f"record:{rec.id}",
+                               detail=f"'{old}' is not an assembly; MMDA now '{rec.district or ''}'"))
+            changed += 1
+        db.commit()
+    return changed
+
+
 def init_db() -> None:
     """Create tables and the first admin account. Safe to call repeatedly and concurrently."""
     global _initialised
@@ -41,6 +65,9 @@ def init_db() -> None:
         Base.metadata.create_all(engine)
         for column in add_missing_columns(engine):
             log.info("Database upgraded: added column %s", column)
+        fixed = _fix_mmda_values()
+        if fixed:
+            log.warning("Corrected %d MMDA value(s) that were not assemblies", fixed)
         with SessionLocal() as db:
             if (db.scalar(select(func.count()).select_from(User)) or 0) == 0:
                 db.add(User(email=settings.admin_email.lower(), full_name="System Administrator", role="admin",

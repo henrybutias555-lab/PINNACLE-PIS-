@@ -45,7 +45,9 @@ _RECORD_PROPS = {
     "gps_address": {"type": ["string", "null"], "description": "Ghana Post GPS digital address, e.g. GA-183-8164"},
     "location": _STR,
     "district": {"type": ["string", "null"],
-                 "description": "Ghana MMDA (Metropolitan/Municipal/District Assembly), e.g. 'Adentan Municipal'"},
+                 "description": "MMDA: the local government ASSEMBLY (Metropolitan, Municipal or District Assembly), "
+                                "e.g. 'Accra Metropolitan', 'Adentan Municipal', 'Shai-Osudoku District'. NOT a "
+                                "neighbourhood or area type such as 'Central Business District' or 'Industrial Area'."},
     "city": _STR, "region": _STR,
     "property_type": _STR, "purpose": _STR, "client": _STR,
     "record_date": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD"},
