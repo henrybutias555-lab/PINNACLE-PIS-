@@ -19,7 +19,8 @@ from app.main import app  # noqa: E402
 @pytest.fixture(scope="session")
 def client():
     # Start from an empty schema (matters when TEST_DATABASE_URL points at a reused Postgres DB).
-    from app.database import Base, engine
+    from app.database import Base, engine, ensure_schema
+    ensure_schema(engine)
     Base.metadata.drop_all(engine)
     with TestClient(app) as c:
         yield c

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import MetaData, create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -12,8 +14,31 @@ from .config import settings
 log = logging.getLogger(__name__)
 
 
+def _schema_name() -> str | None:
+    """Postgres schema that holds all PIS tables.
+
+    Keeping PIS in its own schema (default "pis") means it never collides with
+    tables other apps already created in a shared database's "public" schema.
+    """
+    if settings.database_url.startswith("sqlite"):
+        return None
+    name = os.getenv("PIS_DB_SCHEMA", "pis").strip() or None
+    if name and not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", name):
+        raise ValueError("PIS_DB_SCHEMA must be lowercase letters, digits and underscores")
+    return name
+
+
+DB_SCHEMA = _schema_name()
+
+
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(schema=DB_SCHEMA)
+
+
+def ensure_schema(bind) -> None:
+    if DB_SCHEMA:
+        with bind.begin() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{DB_SCHEMA}"'))
 
 
 def safe_url(url: str) -> str:
