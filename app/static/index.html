@@ -79,7 +79,8 @@
         <header class="page-head"><h2>Data &amp; Search</h2>
           <div class="actions">
             <button class="btn" id="new-record" data-min-role="junior">+ Add record</button>
-            <button class="btn" id="export-csv">Export CSV</button>
+            <button class="btn" id="export-xlsx">Excel</button>
+            <button class="btn" id="export-csv">CSV</button>
             <button class="btn primary" id="export-docx">Evidence table (Word)</button>
           </div>
         </header>
@@ -89,7 +90,8 @@
 
       <!-- Intelligence -->
       <section data-page="intel" class="page">
-        <header class="page-head"><h2>Market &amp; Cost Intelligence</h2></header>
+        <header class="page-head"><h2>Market &amp; Cost Intelligence</h2>
+          <div class="actions"><button class="btn primary" id="intel-xlsx">Export analysis to Excel</button></div></header>
         <form id="intel-filters" class="card filters"></form>
         <div id="intel-metrics" class="kpis"></div>
         <div class="grid two">
@@ -132,7 +134,7 @@
           <div class="filter-actions"><button class="btn primary" type="submit">Find comparables</button></div>
         </form>
         <div class="card"><div class="row between"><h3>Ranked evidence</h3>
-          <div class="row gap"><button class="btn" id="comp-csv">Selected → CSV</button><button class="btn primary" id="comp-docx">Selected → Word table</button></div></div>
+          <div class="row gap"><button class="btn" id="comp-xlsx">Selected → Excel</button><button class="btn" id="comp-csv">Selected → CSV</button><button class="btn primary" id="comp-docx">Selected → Word table</button></div></div>
           <div id="comp-results" class="muted">Enter subject property details and search.</div></div>
       </section>
 

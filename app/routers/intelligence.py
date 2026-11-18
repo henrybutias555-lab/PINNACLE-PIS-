@@ -11,7 +11,7 @@ from ..auth import get_current_user, log_activity
 from ..config import settings
 from ..database import get_db
 from ..models import User
-from ..schemas import CommentaryIn, RecordOut
+from ..schemas import AnalysisExportIn, CommentaryIn, RecordOut
 from ..services import analytics, export, llm
 from ..services.query import RecordFilters, filtered_records, filters_dep
 
@@ -138,7 +138,7 @@ def evidence_export(
     request: Request,
     f: RecordFilters = Depends(filters_dep),
     ids: str | None = Query(None, description="Comma-separated record ids; overrides filters"),
-    format: str = Query("docx", pattern="^(docx|csv)$"),
+    format: str = Query("docx", pattern="^(docx|csv|xlsx)$"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -153,9 +153,45 @@ def evidence_export(
     scope = f.describe()
     log_activity(db, user, "evidence_exported", scope[:255], f"{len(records)} rows, {format}", request)
     name = {"valuation": "comparable-evidence", "cost": "cost-evidence", "housing": "housing-evidence"}[f.category]
+    if format == "xlsx":
+        return Response(export.evidence_xlsx(records, f.category, scope), media_type=export.XLSX_MEDIA,
+                        headers={"Content-Disposition": f'attachment; filename="{name}.xlsx"'})
     if format == "csv":
         return Response(export.evidence_csv(records, f.category), media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
     return Response(export.evidence_docx(records, f.category, scope),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition": f'attachment; filename="{name}.docx"'})
+
+
+ANALYSIS_GROUPS = {"location", "city", "property_type", "category", "purpose", "region"}
+ANALYSIS_TRENDS = ["value_per_sqm", "capital_value", "annual_rent", "yield_pct", "cost_per_sqm", "avg_price",
+                   "avg_monthly_rent"]
+
+
+@router.post("/exports/analysis")
+def analysis_export(body: AnalysisExportIn, request: Request, user: User = Depends(get_current_user),
+                    db: Session = Depends(get_db)):
+    """The market & cost analysis for the current filters as an Excel workbook."""
+    groups = [g.strip() for g in (body.group_by or "location,property_type").split(",") if g.strip()]
+    if not groups or set(groups) - ANALYSIS_GROUPS:
+        raise HTTPException(422, f"group_by must use: {', '.join(sorted(ANALYSIS_GROUPS))}")
+    f = RecordFilters(category=body.category, location=body.location, city=body.city,
+                      property_type=body.property_type, purpose=body.purpose,
+                      date_from=body.date_from, date_to=body.date_to)
+    records = _records(db, f)
+    trend_data = {}
+    for metric in ANALYSIS_TRENDS:
+        series = analytics.trend(records, metric, body.interval)
+        if series:
+            trend_data[metric] = {"label": analytics.METRICS[metric][1], "series": series}
+    cross_records = _records(db, RecordFilters(**{**f.__dict__, "category": None}))
+    data = export.analysis_xlsx(
+        scope=f.describe(), summary=analytics.summary(records),
+        breakdown_rows=analytics.breakdown(records, groups), group_by=groups, trends=trend_data,
+        cross_rows=analytics.cross_analysis(cross_records, "year"), records=records,
+        commentary=(body.commentary or "").strip() or None,
+    )
+    log_activity(db, user, "analysis_exported", f.describe()[:255], f"{len(records)} records, xlsx", request)
+    return Response(data, media_type=export.XLSX_MEDIA,
+                    headers={"Content-Disposition": 'attachment; filename="pis-market-analysis.xlsx"'})
