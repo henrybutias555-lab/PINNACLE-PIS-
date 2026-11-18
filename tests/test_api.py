@@ -453,3 +453,20 @@ def test_evidence_excel_export(client, admin):
     data = rows[1:]
     assert len(data) == 3, data
     assert all(isinstance(x[7], (int, float)) for x in data)  # capital values are numbers, not text
+
+
+def test_export_all_categories(client, admin):
+    """With Category = All, Excel and CSV export every matching record."""
+    import io as _io
+
+    import openpyxl
+
+    r = client.get("/api/exports/evidence?format=xlsx&location=Cantonments", headers=admin)
+    assert r.status_code == 200
+    wb = openpyxl.load_workbook(_io.BytesIO(r.content))
+    assert wb.sheetnames == ["All records", "Valuation evidence", "Cost evidence", "Housing data"]
+    assert wb["All records"].max_row == 4 + 6  # title, subtitle, blank, header + 6 records
+    r = client.get("/api/exports/evidence?format=csv&location=Cantonments", headers=admin)
+    assert r.status_code == 200 and r.text.startswith("﻿Ref,Category")
+    assert len(r.text.strip().splitlines()) == 7
+    assert client.get("/api/exports/evidence?format=docx", headers=admin).status_code == 422
