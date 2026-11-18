@@ -15,6 +15,26 @@ from .text_extract import extract_text
 log = logging.getLogger(__name__)
 
 
+def _derive_rates(rec: dict) -> None:
+    """Fill rates the report implies (per m², yield) so the draft matches what will be saved."""
+    def num(key):
+        try:
+            return float(rec[key]) if rec.get(key) not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+
+    size, value, rent, cost = num("size_sqm"), num("capital_value"), num("annual_rent"), num("total_cost")
+    if size:
+        if value and not rec.get("value_per_sqm"):
+            rec["value_per_sqm"] = round(value / size, 2)
+        if rent and not rec.get("rent_per_sqm"):
+            rec["rent_per_sqm"] = round(rent / size, 2)
+        if cost and not rec.get("cost_per_sqm"):
+            rec["cost_per_sqm"] = round(cost / size, 2)
+    if value and rent and not rec.get("yield_pct"):
+        rec["yield_pct"] = round(rent / value * 100, 2)
+
+
 def process_report(db: Session, report: Report) -> Report:
     # Work on a temporary copy: the original lives in the database.
     suffix = Path(report.filename).suffix.lower()
@@ -63,6 +83,7 @@ def _process(db: Session, report: Report, path: Path) -> Report:
     for rec in draft.get("records", []):
         rec.setdefault("currency", settings.default_currency)
         rec.setdefault("category", draft.get("report_type") or "valuation")
+        _derive_rates(rec)
     report.draft = draft
     report.report_type = draft.get("report_type")
     report.title = (draft.get("title") or report.filename)[:500]

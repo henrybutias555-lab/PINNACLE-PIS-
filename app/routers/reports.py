@@ -15,7 +15,7 @@ from ..auth import get_current_user, log_activity, require_role
 from ..config import settings
 from ..database import SessionLocal, get_db
 from ..models import Record, Report, User
-from ..schemas import ConfirmIn, ReportOut
+from ..schemas import ConfirmIn, RecordOut, ReportOut
 from ..services.ingest import process_report
 from ..services.text_extract import file_type_for
 from .records import record_from_payload
@@ -108,13 +108,90 @@ def download_file(report_id: int, request: Request, user: User = Depends(get_cur
 @router.post("/{report_id}/reprocess", response_model=ReportOut)
 def reprocess(report_id: int, request: Request, user: User = Depends(require_role("junior")),
               db: Session = Depends(get_db)):
+    """Run extraction again. For an approved report the saved records are left untouched:
+    the new result is kept as a draft (``draft.reextracted``) until someone applies it
+    with ``/update-records``."""
     report = db.get(Report, report_id)
     if report is None:
         raise HTTPException(404, "Report not found")
-    if report.status == "confirmed":
-        raise HTTPException(409, "Report already confirmed")
+    if report.status != "confirmed":
+        process_report(db, report)
+        log_activity(db, user, "report_reprocessed", report.filename, request=request)
+        return _out(db, report)
+
+    previous_draft, previous_type, previous_title = report.draft, report.report_type, report.title
     process_report(db, report)
-    log_activity(db, user, "report_reprocessed", report.filename, request=request)
+    if report.status == "failed":
+        error = report.error
+        report.status, report.draft, report.error = "confirmed", previous_draft, None
+        report.report_type, report.title = previous_type, previous_title
+        db.commit()
+        raise HTTPException(422, f"Re-extraction failed: {error}")
+    report.status = "confirmed"
+    report.report_type, report.title = previous_type, previous_title or report.title
+    report.draft = {**(report.draft or {}), "reextracted": True,
+                    "reextracted_at": datetime.now(timezone.utc).isoformat(),
+                    "reextracted_by": user.email}
+    db.commit()
+    log_activity(db, user, "report_reextracted", report.filename,
+                 f"method={report.extraction_method}; saved records unchanged until applied", request)
+    return _out(db, report)
+
+
+@router.post("/{report_id}/discard-reextraction", response_model=ReportOut)
+def discard_reextraction(report_id: int, request: Request, user: User = Depends(require_role("junior")),
+                         db: Session = Depends(get_db)):
+    """Drop a pending re-extraction and keep the saved records as they are."""
+    report = db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(404, "Report not found")
+    saved = list(db.scalars(select(Record).where(Record.report_id == report.id).order_by(Record.id)))
+    report.draft = {"report_type": report.report_type, "title": report.title,
+                    "summary": (report.draft or {}).get("summary"),
+                    "records": [RecordOut.model_validate(r).model_dump(mode="json") for r in saved]}
+    db.commit()
+    log_activity(db, user, "report_reextraction_discarded", report.filename, request=request)
+    return _out(db, report)
+
+
+@router.post("/{report_id}/update-records", response_model=ReportOut)
+def update_records(report_id: int, body: ConfirmIn, request: Request, user: User = Depends(require_role("junior")),
+                   db: Session = Depends(get_db)):
+    """Replace an approved report's saved records with reviewed values (e.g. after re-extraction).
+    Existing records are updated in place so their reference numbers stay the same."""
+    report = db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(404, "Report not found")
+    if report.status != "confirmed":
+        raise HTTPException(409, "Only approved reports can be updated; use confirm for new reports")
+    if not body.records:
+        raise HTTPException(400, "Provide at least one record")
+    existing = list(db.scalars(select(Record).where(Record.report_id == report.id).order_by(Record.id)))
+    updated = created = 0
+    for i, payload in enumerate(body.records):
+        fresh = record_from_payload(payload, user)
+        if i < len(existing):
+            rec = existing[i]
+            for column in Record.__table__.columns.keys():
+                if column in ("id", "report_id", "created_by_id", "created_at", "updated_at"):
+                    continue
+                setattr(rec, column, getattr(fresh, column))
+            updated += 1
+        else:
+            fresh.report_id = report.id
+            db.add(fresh)
+            created += 1
+    removed = 0
+    for rec in existing[len(body.records):]:
+        db.delete(rec)
+        removed += 1
+    report.draft = {**{k: v for k, v in (report.draft or {}).items()
+                       if k not in ("reextracted", "reextracted_at", "reextracted_by", "warning")},
+                    "records": [r.model_dump(mode="json") for r in body.records]}
+    report.report_type = body.records[0].category
+    db.commit()
+    log_activity(db, user, "report_records_updated", report.filename,
+                 f"{updated} updated, {created} added, {removed} removed", request)
     return _out(db, report)
 
 
