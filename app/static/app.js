@@ -554,10 +554,45 @@ $("#user-form").addEventListener("submit", async (e) => {
   try { await api("/api/users", { method: "POST", body: formData(e.target) }); e.target.reset(); toast("User created"); loadAdmin(); } catch (err) { toast(err.message, true); }
 });
 
+/* ---------------- Show / hide password ---------------- */
+const EYE = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+/* Wrap every password field in `root` with an eye button that shows/hides the text. */
+function addPasswordToggles(root = document) {
+  $$('input[type="password"]', root).forEach((input) => {
+    if (input.dataset.toggle) return;
+    input.dataset.toggle = "1";
+    const wrap = document.createElement("span");
+    wrap.className = "pw-wrap";
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "pw-toggle";
+    btn.innerHTML = EYE;
+    btn.setAttribute("aria-label", "Show password");
+    btn.setAttribute("aria-pressed", "false");
+    btn.addEventListener("click", () => {
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      btn.innerHTML = show ? EYE_OFF : EYE;
+      btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      btn.setAttribute("aria-pressed", String(show));
+      input.focus();
+    });
+    wrap.appendChild(btn);
+    // Never leave a password visible after the form is submitted or reset.
+    input.form?.addEventListener("submit", () => { if (input.type === "text") btn.click(); });
+    input.form?.addEventListener("reset", () => { if (input.type === "text") btn.click(); });
+  });
+}
+
 /* ---------------- Modal ---------------- */
-function openModal(html) { $("#modal-body").innerHTML = html; $("#modal").showModal(); }
+function openModal(html) { $("#modal-body").innerHTML = html; addPasswordToggles($("#modal-body")); $("#modal").showModal(); }
 function closeModal() { $("#modal").close(); }
 $("#modal").addEventListener("close", () => { $("#modal-body").innerHTML = ""; });
 window.closeModal = closeModal;
 
+addPasswordToggles();
 boot();
