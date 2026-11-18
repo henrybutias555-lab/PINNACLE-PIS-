@@ -13,8 +13,9 @@ from ..models import Record
 
 COLUMNS = {
     "valuation": [
-        ("Date", "record_date"), ("Address", "address"), ("Location", "location"), ("District (MMDA)", "district"),
-        ("Type", "property_type"), ("Size (m²)", "size_sqm"), ("Basis", "valuation_basis"), ("Capital value", "capital_value"),
+        ("Date", "record_date"), ("GPS address", "gps_address"), ("Address", "address"), ("Location", "location"),
+        ("District (MMDA)", "district"), ("Type", "property_type"), ("Size (m²)", "size_sqm"),
+        ("Basis of value", "basis_of_value"), ("Capital value", "capital_value"),
         ("Value/m²", "value_per_sqm"), ("Annual rent", "annual_rent"), ("Yield %", "yield_pct"),
         ("Method", "method"), ("Currency", "currency"),
     ],
@@ -120,11 +121,14 @@ XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 RECORD_COLUMNS = [
     ("Ref", "id", None), ("Category", "category", None), ("Date", "record_date", "yyyy-mm-dd"),
-    ("Title / project", "title", None), ("Address", "address", None), ("Location", "location", None),
+    ("Title / project", "title", None), ("GPS address", "gps_address", None), ("Address", "address", None),
+    ("Location", "location", None),
     ("District (MMDA)", "district", None), ("City", "city", None), ("Region", "region", None), ("Property type", "property_type", None),
     ("Purpose", "purpose", None), ("Client", "client", None), ("Currency", "currency", None),
-    ("Size / GFA (m²)", "size_sqm", "#,##0.00"), ("Basis", "valuation_basis", None), ("Method", "method", None),
-    ("Capital value", "capital_value", "#,##0"), ("Value per m²", "value_per_sqm", "#,##0"),
+    ("Size / GFA (m²)", "size_sqm", "#,##0.00"), ("Property valued", "property_valued", None),
+    ("Basis of value", "basis_of_value", None), ("Assumptions / special assumptions", "assumptions", None),
+    ("Valuer", "valuer", None), ("Capital / rental", "valuation_basis", None), ("Method", "method", None),
+    ("Capital value (opinion of value)", "capital_value", "#,##0"), ("Value per m²", "value_per_sqm", "#,##0"),
     ("Annual rent", "annual_rent", "#,##0"), ("Rent per m² p.a.", "rent_per_sqm", "#,##0.00"),
     ("Yield %", "yield_pct", "0.00"), ("Total construction cost", "total_cost", "#,##0"),
     ("Cost per m²", "cost_per_sqm", "#,##0"), ("Specification", "specification", None),

@@ -72,6 +72,7 @@ class Record(Base):
     # Common descriptors
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    gps_address: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)  # Ghana Post GPS
     location: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)  # area / suburb
     district: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)  # MMDA
     city: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
@@ -86,6 +87,9 @@ class Record(Base):
     # Valuation
     valuation_basis: Mapped[str | None] = mapped_column(String(30), nullable=True)  # capital | rental | both
     method: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    property_valued: Mapped[str | None] = mapped_column(Text, nullable=True)
+    basis_of_value: Mapped[str | None] = mapped_column(String(160), nullable=True)  # e.g. Market Value
+    valuer: Mapped[str | None] = mapped_column(String(255), nullable=True)  # valuer identity
     capital_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     annual_rent: Mapped[float | None] = mapped_column(Float, nullable=True)
     yield_pct: Mapped[float | None] = mapped_column(Float, nullable=True)

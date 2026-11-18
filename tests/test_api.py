@@ -449,7 +449,7 @@ def test_evidence_excel_export(client, admin):
     wb = openpyxl.load_workbook(_io.BytesIO(r.content))
     assert wb.sheetnames == ["Evidence", "All fields"]
     rows = list(wb["Evidence"].iter_rows(min_row=4, values_only=True))
-    assert rows[0][:3] == ("Ref", "Date", "Address")
+    assert rows[0][:4] == ("Ref", "Date", "GPS address", "Address")
     data = rows[1:]
     assert len(data) == 3, data
     col = rows[0].index("Capital value")
@@ -562,8 +562,12 @@ def test_add_missing_columns_upgrades_old_database(tmp_path):
     """An existing database without the new column gets it added, keeping its data."""
     from sqlalchemy import create_engine, inspect, text
 
-    from app.database import Base, add_missing_columns
+    import pytest
 
+    from app.database import DB_SCHEMA, Base, add_missing_columns
+
+    if DB_SCHEMA:
+        pytest.skip("SQLite-only check; Postgres upgrades are rehearsed against a real database")
     eng = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
     Base.metadata.create_all(eng)
     with eng.begin() as c:
@@ -577,3 +581,80 @@ def test_add_missing_columns_upgrades_old_database(tmp_path):
     with eng.connect() as c:
         assert c.execute(text("SELECT location FROM records")).scalar() == "Osu"
     assert add_missing_columns(eng) == []  # idempotent
+
+
+def test_new_valuation_and_address_fields_extracted():
+    from app.services import rules
+
+    text = GHANA_REPORT + """
+GPS Address: GA-183-8164
+Client: Example Bank Ltd
+Purpose of valuation: Mortgage
+Property valued: A 5-bedroom mansion with boys quarters on 0.25 acres
+Basis of value: Market Value and Forced Sale Value
+Assumptions: Title is good and marketable
+Special assumptions: Building completed as per approved plans
+Valuer: Kofi Mensah, MGhIS, Pinnacle Estate Surveyors"""
+    r = rules.extract(text)["records"][0]
+    assert r["gps_address"] == "GA-183-8164"
+    assert r["client"] == "Example Bank Ltd" and r["purpose"] == "Mortgage"
+    assert r["property_valued"].startswith("A 5-bedroom mansion")
+    assert r["basis_of_value"] == "Market Value and Forced Sale Value"
+    assert "Special: Building completed" in r["assumptions"]
+    assert r["valuer"].startswith("Kofi Mensah")
+    assert rules.find_gps("digital address ga 039 5028") == "GA-039-5028"
+
+
+def test_excel_round_trip_import(client, admin):
+    """Export to Excel, edit the file as a user would in Excel, upload it back."""
+    import io as _io
+
+    import openpyxl
+
+    rid = client.post("/api/records", headers=admin, json={
+        "category": "valuation", "location": "Osu", "city": "Accra", "size_sqm": 100, "capital_value": 1000000,
+        "tags": ["office"], "record_date": "2025-03-01"}).json()["id"]
+    xlsx = client.get(f"/api/exports/evidence?format=xlsx&q=Osu", headers=admin).content
+    wb = openpyxl.load_workbook(_io.BytesIO(xlsx))
+    ws = wb["All records"]
+    header = [c.value for c in ws[4]]
+    col = {name: header.index(name) + 1 for name in header}
+    row = next(r for r in range(5, ws.max_row + 1) if ws.cell(r, col["Ref"]).value == rid)
+    ws.cell(row, col["Capital value (opinion of value)"]).value = 1500000      # edit a figure
+    ws.cell(row, col["District (MMDA)"]).value = "Korle Klottey Municipal"     # fill a blank
+    ws.cell(row, col["GPS address"]).value = "GA-100-2000"
+    new_row = ws.max_row + 1                                                   # add a brand-new record
+    ws.cell(new_row, col["Category"]).value = "cost"
+    ws.cell(new_row, col["Location"]).value = "Spintex"
+    ws.cell(new_row, col["Total construction cost"]).value = 2400000
+    ws.cell(new_row, col["Size / GFA (m²)"]).value = 300
+    bad_row = ws.max_row + 1                                                   # a row with a mistake
+    ws.cell(bad_row, col["Ref"]).value = 999999
+    buf = _io.BytesIO(); wb.save(buf)
+    files = lambda: {"file": ("edited.xlsx", buf.getvalue(), "application/octet-stream")}
+
+    plan = client.post("/api/imports/records/preview", headers=admin, files=files()).json()
+    upd = next(u for u in plan["updates"] if u["id"] == rid)
+    assert upd["changes"]["capital_value"] == [1000000, 1500000]
+    assert upd["changes"]["district"] == [None, "Korle Klottey Municipal"]
+    assert len(plan["creates"]) == 1 and plan["creates"][0]["values"]["location"] == "Spintex"
+    assert any("999999" in e["error"] for e in plan["errors"])
+    # preview saves nothing
+    assert client.get(f"/api/records/{rid}", headers=admin).json()["capital_value"] == 1000000
+
+    res = client.post("/api/imports/records/apply", headers=admin, files=files()).json()
+    assert res["updated"] >= 1 and res["created"] == 1
+    rec = client.get(f"/api/records/{rid}", headers=admin).json()
+    assert rec["capital_value"] == 1500000 and rec["value_per_sqm"] == 15000  # derived figure recomputed
+    assert rec["district"] == "Korle Klottey Municipal" and rec["gps_address"] == "GA-100-2000"
+    assert rec["tags"] == ["office"]  # untouched cells unchanged
+    spintex = client.get("/api/records?q=Spintex&category=cost", headers=admin).json()["items"]
+    assert spintex and spintex[0]["cost_per_sqm"] == 8000
+
+    # Uploading the same file again changes nothing for the edited record
+    again = client.post("/api/imports/records/preview", headers=admin, files=files()).json()
+    assert not any(u["id"] == rid for u in again["updates"])
+    assert again["creates"] == [] and any("already imported" in e["error"] for e in again["errors"])
+    # Viewers cannot import; non-Excel files are rejected clearly
+    assert client.post("/api/imports/records/preview", headers=admin,
+                       files={"file": ("x.xlsx", b"not excel", "application/octet-stream")}).status_code == 400

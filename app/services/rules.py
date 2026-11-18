@@ -75,6 +75,31 @@ def _currency_code(sym: str) -> str:
     return s
 
 
+GPS_RE = re.compile(r"\b([A-Z]{2})[-\s](\d{3,4})[-\s](\d{4})\b")
+
+BASES_OF_VALUE = ["Market Value", "Market Rent", "Forced Sale Value", "Fair Value", "Investment Value",
+                  "Reinstatement Cost", "Depreciated Replacement Cost", "Mortgage Lending Value"]
+
+
+def find_gps(text: str) -> str | None:
+    """Ghana Post GPS digital address, e.g. GA-183-8164."""
+    labelled = _labelled(text, ["gps address", "digital address", "ghana post gps", "gps"])
+    for source in ([labelled] if labelled else []) + [text]:
+        m = GPS_RE.search(source.upper())
+        if m:
+            return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return None
+
+
+def find_basis_of_value(text: str) -> str | None:
+    labelled = _labelled(text, ["basis of value", "basis of valuation", "bases of value"])
+    if labelled:
+        return labelled[:160]
+    low = text.lower()
+    found = [b for b in BASES_OF_VALUE if b.lower() in low]
+    return " & ".join(found[:2]) or None
+
+
 def classify(text: str) -> str:
     low = text.lower()
     scores = {cat: sum(low.count(k) for k in kws) for cat, kws in CATEGORY_KEYWORDS.items()}
@@ -187,7 +212,8 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
     category = classify(text)
     record: dict = {"category": category}
     record["title"] = _labelled(text, ["title", "subject", "re", "property"]) or None
-    record["address"] = _labelled(text, ["property address", "address", "subject property", "site"])
+    record["address"] = _labelled(text, ["property address", "address", "site"])
+    record["gps_address"] = find_gps(text)
     record["location"] = _labelled(text, ["location", "area", "neighbourhood", "neighborhood", "suburb", "district"])
     record["district"] = _labelled(text, ["mmda", "district assembly", "municipal assembly", "metropolitan assembly",
                                           "assembly", "local authority", "district"])
@@ -226,7 +252,13 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
             record["valuation_basis"] = "rental"
         else:
             record["valuation_basis"] = "capital"
-        record["assumptions"] = _labelled(text, ["assumptions", "special assumptions"])
+        general = _labelled(text, ["assumptions"])
+        special = _labelled(text, ["special assumptions"])
+        record["assumptions"] = "; ".join(x for x in (general, f"Special: {special}" if special else None) if x) or None
+        record["property_valued"] = _labelled(text, ["property valued", "subject property", "property description",
+                                                     "description of property", "description of the property"])
+        record["basis_of_value"] = find_basis_of_value(text)
+        record["valuer"] = _labelled(text, ["valuer", "valued by", "prepared by", "signed by", "reporting valuer"])
     elif category == "cost":
         record["total_cost"], cur = _labelled_amount(text, ["total construction cost", "total cost", "contract sum", "estimated cost", "total"])
         record["cost_per_sqm"], c2 = _labelled_amount(text, ["cost per square met", "cost per sq", "cost/m", "rate per m", "per m2", "per m²"])
