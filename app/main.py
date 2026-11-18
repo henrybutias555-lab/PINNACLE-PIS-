@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import os
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -73,6 +74,7 @@ h1{{color:#0f4c5c}}</style></head><body>
 <b>Project &rarr; Settings &rarr; Environment Variables</b>, add them, then redeploy.</p>
 <ul>{items}</ul>
 <p>Optional: <code>ANTHROPIC_API_KEY</code> turns on Claude for document extraction and commentary.</p>
+<p style="color:#64707f;font-size:.85em">Build {html.escape((os.getenv("VERCEL_GIT_COMMIT_SHA") or "local")[:7])}</p>
 </body></html>"""
 
 
@@ -125,7 +127,8 @@ app.include_router(intelligence.router)
 def health():
     return {"status": "ok", "ai_enabled": settings.ai_enabled,
             "model": settings.claude_model if settings.ai_enabled else None,
-            "default_currency": settings.default_currency, "max_upload_mb": settings.max_upload_mb}
+            "default_currency": settings.default_currency, "max_upload_mb": settings.max_upload_mb,
+            "build": (os.getenv("VERCEL_GIT_COMMIT_SHA") or "local")[:7]}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
