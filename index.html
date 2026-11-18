@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#161413">
+<title>RISA — Crafted for Cravings</title>
+<meta name="description" content="RISA menu: noodles, stir fry pasta, salads, wings, snacks and drinks.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://images.unsplash.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #161413;
+    --surface: #211e1c;
+    --line: #2f2b28;
+    --text: #f5f1ec;
+    --muted: #a39b93;
+    --red: #c8423a;
+    --red-soft: rgba(200, 66, 58, .14);
+    --radius: 20px;
+    --serif: "Playfair Display", Georgia, serif;
+    --sans: "DM Sans", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--sans);
+    font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+  img { display: block; max-width: 100%; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+
+  /* ---------- Header ---------- */
+  .top {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(22, 20, 19, .92);
+    backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; max-width: 720px; margin: 0 auto; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 42px; height: 42px; border-radius: 12px; background: var(--red);
+    display: grid; place-items: center; font: 700 22px var(--serif);
+  }
+  .brand h1 { font: 700 22px/1 var(--serif); letter-spacing: .01em; }
+  .brand p { font-size: 11px; letter-spacing: .22em; color: var(--muted); text-transform: uppercase; margin-top: 4px; }
+  .cart-btn {
+    position: relative; width: 48px; height: 42px; border-radius: 12px; background: var(--red);
+    display: grid; place-items: center;
+  }
+  .cart-btn .count {
+    position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px;
+    border-radius: 10px; background: var(--text); color: var(--bg); font-size: 12px; font-weight: 600;
+    display: none; place-items: center;
+  }
+  .cart-btn .count.show { display: grid; }
+
+  /* ---------- Category tabs ---------- */
+  .tabs {
+    display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+    padding: 0 18px 12px; max-width: 720px; margin: 0 auto;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: none; padding: 9px 16px; border-radius: 12px; background: var(--surface);
+    color: var(--muted); font-size: 15px; font-weight: 500; white-space: nowrap;
+    transition: background .2s, color .2s;
+  }
+  .tab.active { background: var(--red); color: #fff; }
+
+  /* ---------- Menu ---------- */
+  main { max-width: 720px; margin: 0 auto; padding: 0 18px; }
+  section { padding-top: 36px; scroll-margin-top: 130px; }
+  .sec-head { margin-bottom: 18px; }
+  .sec-head h2 { font: 700 30px/1.15 var(--serif); }
+  .sec-head p { color: var(--muted); margin-top: 6px; }
+  .list { display: grid; gap: 18px; }
+  @media (min-width: 640px) { .list { grid-template-columns: 1fr 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    overflow: hidden; display: flex; flex-direction: column;
+  }
+  .photo {
+    position: relative; aspect-ratio: 4 / 3; background: #2a2624; overflow: hidden;
+  }
+  .photo img {
+    width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transform: scale(1.02); transition: opacity .5s ease, transform .6s ease;
+  }
+  .photo img.loaded { opacity: 1; transform: none; }
+  .photo .fallback {
+    position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; text-align: center;
+    font: 700 34px var(--serif); letter-spacing: .2em; color: rgba(255,255,255,.18);
+    background: radial-gradient(120% 90% at 30% 20%, #4a2a24, #211e1c 70%);
+  }
+  .badge {
+    position: absolute; top: 12px; left: 12px; z-index: 1;
+    padding: 5px 11px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    letter-spacing: .12em; text-transform: uppercase;
+    background: rgba(20, 18, 17, .78); color: #fff;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  .badge.spicy { color: #ff9a6b; }
+  .badge.signature { color: #f2c46d; }
+  .badge.value { color: #7fd6a4; }
+  .badge.popular, .badge.local { color: #ff8a80; }
+
+  .body { padding: 16px 18px 18px; display: flex; flex-direction: column; flex: 1; }
+  .body h3 { font: 600 20px/1.25 var(--serif); }
+  .body p { color: var(--muted); font-size: 15px; margin-top: 6px; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 14px; }
+  .price { font: 700 22px var(--serif); color: #e36a5f; }
+
+  .add {
+    display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px;
+    border-radius: 12px; border: 1px solid #3c3733; background: #2b2724; font-weight: 500;
+    transition: background .15s, border-color .15s;
+  }
+  .add:active { transform: scale(.97); }
+  .stepper { display: inline-flex; align-items: center; height: 40px; border-radius: 12px; background: var(--red); }
+  .stepper button { width: 40px; height: 40px; font-size: 20px; line-height: 1; }
+  .stepper span { min-width: 22px; text-align: center; font-weight: 600; }
+
+  /* Extras: compact cards, no photo */
+  .extras .card .body { padding: 16px 18px; }
+
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 48px 18px 16px; }
+
+  /* ---------- Bottom order bar ---------- */
+  .order-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    background: rgba(22, 20, 19, .96); border-top: 1px solid var(--line);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+  }
+  .order-bar .inner { max-width: 720px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .total { font: 700 22px var(--serif); }
+  .sub { color: var(--muted); font-size: 14px; }
+  .cta {
+    height: 50px; padding: 0 22px; border-radius: 14px; background: var(--red); color: #fff;
+    font-weight: 600; font-size: 16px; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .cta:disabled { opacity: .5; }
+
+  /* ---------- Cart sheet ---------- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 40; opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; max-height: 85vh; overflow: auto;
+    background: var(--surface); border-radius: 22px 22px 0 0; border-top: 1px solid var(--line);
+    transform: translateY(100%); transition: transform .3s ease;
+    padding: 10px 18px calc(18px + env(safe-area-inset-bottom));
+  }
+  .open .scrim { opacity: 1; pointer-events: auto; }
+  .open .sheet { transform: none; }
+  .sheet .grip { width: 40px; height: 4px; border-radius: 2px; background: #4a443f; margin: 0 auto 14px; }
+  .sheet-wrap { max-width: 720px; margin: 0 auto; }
+  .sheet h2 { font: 700 24px var(--serif); margin-bottom: 12px; }
+  .line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .line .name { font-weight: 500; }
+  .line .each { color: var(--muted); font-size: 14px; }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+  .sheet .cta { width: 100%; justify-content: center; margin-top: 18px; }
+  .note { width: 100%; margin-top: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; color: var(--text); padding: 12px; font: inherit; resize: vertical; min-height: 70px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="bar">
+    <div class="brand">
+      <div class="logo">R</div>
+      <div>
+        <h1>RISA</h1>
+        <p>Crafted for cravings</p>
+      </div>
+    </div>
+    <button class="cart-btn" id="cartBtn" aria-label="Open your order">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+      <span class="count" id="cartCount">0</span>
+    </button>
+  </div>
+  <nav class="tabs" id="tabs" aria-label="Menu categories"></nav>
+</header>
+
+<main id="menu"></main>
+
+<footer>© RISA · Crafted for cravings</footer>
+
+<div class="order-bar">
+  <div class="inner">
+    <div>
+      <div class="total" id="barTotal">GH₵0</div>
+      <div class="sub" id="barSub">Your order is waiting</div>
+    </div>
+    <button class="cta" id="barCta">View order
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  </div>
+</div>
+
+<div id="cartLayer">
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-label="Your order">
+    <div class="sheet-wrap">
+      <div class="grip"></div>
+      <h2>Your order</h2>
+      <div id="lines"></div>
+      <textarea class="note" id="note" placeholder="Notes (flavour choice, delivery location…)"></textarea>
+      <button class="cta" id="checkout">Send order on WhatsApp</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   EDIT YOUR MENU HERE
+   - price is in Ghana cedis
+   - image: a photo URL, or a file path like "images/chicken-salad.jpg"
+     (for the sharpest result, use your own photos, at least 1200px wide)
+   - badge: "popular" | "spicy" | "signature" | "value" | "local" | null
+   ========================================================= */
+const WHATSAPP_NUMBER = ""; // e.g. "233241234567" (country code, no + or spaces)
+
+const u = (id) => `https://images.unsplash.com/${id}?auto=format&fit=crop&q=80`;
+
+const MENU = [
+  {
+    id: "salads", title: "Salads", tagline: "Fresh, hearty, and packed with flavour.",
+    items: [
+      { name: "Ghanaian Regular Salad", price: 50, desc: "Vegetables, sardines, egg, corned beef, sweet corn, macaroni, special sauce & ketchup.", image: u("photo-1512621776951-a57141f2eefd") },
+      { name: "Chicken Salad", price: 70, desc: "Vegetables, egg, pasta, sweet corn, chicken, special sauce & ketchup.", image: u("photo-1546069901-ba9599a7e63c") },
+    ],
+  },
+  {
+    id: "noodles", title: "Noodles / Stir Fry Pasta", tagline: "The cravings that started it all.",
+    items: [
+      { name: "Mini Craving", price: 40, badge: "popular", desc: "Noodles or pasta with vegetables, sausage, sardines, egg & corned beef.", image: u("photo-1585032226651-759b368d7246") },
+      { name: "Classic Craving", price: 50, desc: "Noodles or pasta, vegetables, sausage, sardines, eggs, corned beef & gizzard.", image: u("photo-1612929633738-8fe44f7ec841") },
+      { name: "Cluck Craving", price: 70, desc: "Noodles or pasta, vegetables, sausage, sardines, eggs, corned beef & chicken.", image: u("photo-1617093727343-374698b1b08d") },
+      { name: "Buldak Noodles", price: 100, desc: "Buldak noodles with your choice of flavour, sausage & eggs.", image: u("photo-1569718212165-3a8278d5f624") },
+      { name: "Fire Craving", price: 120, badge: "spicy", desc: "Buldak noodles with your choice of flavour, sausage, egg, shrimp & cheese.", image: u("photo-1555126634-323283e090fa") },
+      { name: "RisBuldak", price: 115, badge: "signature", desc: "The RISA twist on buldak — bold, spicy, and unapologetically indulgent.", image: u("photo-1552611052-33e04de081de") },
+      { name: "OG Craving", price: 100, desc: "Noodles or pasta, vegetables, sausages, sardines, eggs, corned beef, chicken, shrimp & meat.", image: u("photo-1563245372-f21724e3856d") },
+      { name: "Mini Craving + Chicken Wings", price: 70, desc: "Mini Craving noodles with chicken wings.", image: u("photo-1534422298391-e4f8c172dddb") },
+    ],
+  },
+  {
+    id: "wings", title: "Wings & Snacks", tagline: "Crunchy, gooey, and impossible to share.",
+    items: [
+      { name: "Chicken Wings · 5 pieces", price: 50, desc: "Crispy, seasoned chicken wings. Five pieces.", image: u("photo-1527477396000-e27163b481c2") },
+      { name: "Chicken Wings · 10 pieces", price: 100, badge: "value", desc: "Crispy, seasoned chicken wings. Ten pieces.", image: u("photo-1608039829572-78524f79c4c7") },
+      { name: "Mozzarella Sticks · 5 pieces", price: 50, desc: "Golden, gooey mozzarella sticks. Five pieces.", image: u("photo-1531749668029-2db88e4276c7") },
+      { name: "Mozzarella Sticks · 10 pieces", price: 100, desc: "Golden, gooey mozzarella sticks. Ten pieces.", image: u("photo-1548340748-6d2b7d7da280") },
+    ],
+  },
+  {
+    id: "drinks", title: "Drinks & Something Sweet", tagline: "Cool down. Sweeten up.",
+    items: [
+      { name: "Ice Kenkey", price: 15, badge: "local", desc: "Refreshing & creamy.", image: u("photo-1577805947697-89e18249d767") },
+      { name: "Pineapple Juice", price: 15, desc: "Pure goodness.", image: u("photo-1622597467836-f3285f2131b8") },
+      { name: "Sweet Sago Cloud", price: 15, desc: "Choose a flavour: mango, strawberry or banana.", image: u("photo-1553530666-ba11a7da3888") },
+      { name: "Parfait", price: 50, desc: "Yogurt, granola and two toppings of fruit.", image: u("photo-1488477181946-6428a0291777") },
+    ],
+  },
+  {
+    id: "extras", title: "Extras", tagline: "Top it up your way.", compact: true,
+    items: [
+      { name: "Sausage", price: 5, desc: "Add sausage to any order." },
+      { name: "Egg", price: 5, desc: "Add egg to any order." },
+      { name: "Chicken", price: 10, desc: "Add chicken to any order." },
+    ],
+  },
+];
+
+const BADGE_LABEL = { popular: "Popular", spicy: "🌶 Spicy", signature: "Signature", value: "Value", local: "Local favourite" };
+
+/* ---------- Render ---------- */
+const $ = (s) => document.querySelector(s);
+const cedi = (n) => `GH₵${n}`;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const items = {};
+let first = true;
+
+function srcset(url) {
+  if (!url.includes("images.unsplash.com")) return "";
+  return [600, 900, 1200, 1600].map((w) => `${url}&w=${w} ${w}w`).join(", ");
+}
+
+function photo(item) {
+  if (!item.image) return "";
+  const badge = item.badge ? `<span class="badge ${item.badge}">${BADGE_LABEL[item.badge]}</span>` : "";
+  const isUnsplash = item.image.includes("images.unsplash.com");
+  const src = isUnsplash ? `${item.image}&w=900` : item.image;
+  const ss = srcset(item.image);
+  const eager = first; first = false;
+  return `<div class="photo">${badge}
+    <img src="${src}" ${ss ? `srcset="${ss}" sizes="(min-width: 640px) 342px, calc(100vw - 36px)"` : ""}
+      alt="${esc(item.name)}" ${eager ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async"
+      onload="this.classList.add('loaded')"
+      onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'fallback',textContent:'RISA'}))">
+  </div>`;
+}
+
+$("#tabs").innerHTML = MENU.map((s, i) =>
+  `<button class="tab${i === 0 ? " active" : ""}" data-target="${s.id}">${esc(s.title)}</button>`).join("");
+
+$("#menu").innerHTML = MENU.map((s) => `
+  <section id="${s.id}" class="${s.compact ? "extras" : ""}">
+    <div class="sec-head"><h2>${esc(s.title)}</h2><p>${esc(s.tagline)}</p></div>
+    <div class="list">${s.items.map((item, i) => {
+      const key = `${s.id}-${i}`; items[key] = item;
+      return `<article class="card">${s.compact ? "" : photo(item)}
+        <div class="body">
+          <h3>${esc(item.name)}</h3>
+          <p>${esc(item.desc)}</p>
+          <div class="row"><span class="price">${cedi(item.price)}</span><span data-ctrl="${key}"></span></div>
+        </div></article>`;
+    }).join("")}</div>
+  </section>`).join("");
+
+/* ---------- Cart ---------- */
+const cart = {};
+function setQty(key, q) { if (q <= 0) delete cart[key]; else cart[key] = q; update(); }
+
+function ctrl(key) {
+  const q = cart[key] || 0;
+  return q
+    ? `<span class="stepper"><button data-dec="${key}" aria-label="Remove one">−</button><span>${q}</span><button data-inc="${key}" aria-label="Add one">+</button></span>`
+    : `<button class="add" data-inc="${key}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add</button>`;
+}
+
+function update() {
+  document.querySelectorAll("[data-ctrl]").forEach((el) => (el.innerHTML = ctrl(el.dataset.ctrl)));
+  const keys = Object.keys(cart);
+  const count = keys.reduce((n, k) => n + cart[k], 0);
+  const total = keys.reduce((n, k) => n + cart[k] * items[k].price, 0);
+  $("#barTotal").textContent = cedi(total);
+  $("#barSub").textContent = count ? `${count} item${count > 1 ? "s" : ""} in your order` : "Your order is waiting";
+  $("#cartCount").textContent = count;
+  $("#cartCount").classList.toggle("show", count > 0);
+  $("#lines").innerHTML = keys.length
+    ? keys.map((k) => `<div class="line"><div><div class="name">${esc(items[k].name)}</div><div class="each">${cedi(items[k].price)} each</div></div>${ctrl(k)}</div>`).join("")
+      + `<div class="line"><strong>Total</strong><strong class="price">${cedi(total)}</strong></div>`
+    : `<div class="empty">Nothing here yet — add something tasty.</div>`;
+  $("#checkout").disabled = !keys.length;
+}
+
+document.addEventListener("click", (e) => {
+  const inc = e.target.closest("[data-inc]"), dec = e.target.closest("[data-dec]");
+  if (inc) setQty(inc.dataset.inc, (cart[inc.dataset.inc] || 0) + 1);
+  if (dec) setQty(dec.dataset.dec, (cart[dec.dataset.dec] || 0) - 1);
+});
+
+const layer = $("#cartLayer");
+const openCart = () => layer.classList.add("open");
+const closeCart = () => layer.classList.remove("open");
+$("#cartBtn").onclick = openCart;
+$("#barCta").onclick = openCart;
+$("#scrim").onclick = closeCart;
+document.addEventListener("keydown", (e) => e.key === "Escape" && closeCart());
+
+$("#checkout").onclick = () => {
+  const keys = Object.keys(cart);
+  const total = keys.reduce((n, k) => n + cart[k] * items[k].price, 0);
+  let msg = "Hi RISA! I'd like to order:\n" + keys.map((k) => `• ${cart[k]} × ${items[k].name} — ${cedi(cart[k] * items[k].price)}`).join("\n") + `\n\nTotal: ${cedi(total)}`;
+  const note = $("#note").value.trim();
+  if (note) msg += `\nNotes: ${note}`;
+  const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+  window.open(url, "_blank");
+};
+
+/* ---------- Tabs follow scrolling ---------- */
+const tabs = [...document.querySelectorAll(".tab")];
+tabs.forEach((t) => (t.onclick = () => document.getElementById(t.dataset.target).scrollIntoView()));
+
+function setActive(id) {
+  tabs.forEach((t) => {
+    const on = t.dataset.target === id;
+    if (on && !t.classList.contains("active")) {
+      const bar = t.parentElement;
+      bar.scrollTo({ left: t.offsetLeft - (bar.clientWidth - t.offsetWidth) / 2, behavior: "smooth" });
+    }
+    t.classList.toggle("active", on);
+  });
+}
+function onScroll() {
+  const line = $(".top").offsetHeight + 40;
+  let current = MENU[0].id;
+  for (const s of MENU) if (document.getElementById(s.id).getBoundingClientRect().top <= line) current = s.id;
+  if (innerHeight + scrollY >= document.body.scrollHeight - 4) current = MENU[MENU.length - 1].id;
+  setActive(current);
+}
+addEventListener("scroll", () => requestAnimationFrame(onScroll), { passive: true });
+
+update();
+onScroll();
+</script>
+</body>
+</html>
