@@ -64,6 +64,36 @@ _RECORD_PROPS = {
     "specification": _STR,
     "avg_price": _NUM, "avg_monthly_rent": _NUM, "supply_units": _INT, "demand_level": _STR,
     "affordability_ratio": _NUM, "stock_notes": _STR,
+    "property_name": {"type": ["string", "null"], "description": 'Property name or house / plot number'},
+    "owner": {"type": ["string", "null"], "description": 'Registered owner of the property'},
+    "use_occupancy": {"type": ["string", "null"], "description": "Current use and occupancy, e.g. 'Residential, owner-occupied'"},
+    "highest_best_use": {"type": ["string", "null"], "description": 'Highest and best use'},
+    "gps_coordinates": {"type": ["string", "null"], "description": "Latitude, longitude, e.g. '5.6396, -0.1676'"},
+    "land_size": {"type": ["string", "null"], "description": "Land / plot size as stated, e.g. '0.25 acres (1,011.7 m²)'"},
+    "accessibility": {"type": ["string", "null"], "description": 'Road access and accessibility'},
+    "building_type": {"type": ["string", "null"], "description": "e.g. 'Two-storey detached house'"},
+    "accommodation": {"type": ["string", "null"], "description": 'Rooms and accommodation'},
+    "construction_details": {"type": ["string", "null"], "description": 'Foundation, walls, roof, floors, finishes'},
+    "services": {"type": ["string", "null"], "description": 'Water, electricity, drainage, sewage, etc.'},
+    "floor_areas": {"type": ["string", "null"], "description": 'Floor areas as described (the total in m² goes in size_sqm)'},
+    "ancillary_structures": {"type": ["string", "null"], "description": 'Boys quarters, garage, fence wall, pool, etc.'},
+    "ownership": {"type": ["string", "null"], "description": 'Ownership type, e.g. private, family, stool, state'},
+    "tenure": {"type": ["string", "null"], "description": 'e.g. Leasehold, Freehold'},
+    "source_of_title": {"type": ["string", "null"], "description": 'e.g. Land Title Certificate No. ..., Indenture dated ...'},
+    "unexpired_term": {"type": ["string", "null"], "description": "Unexpired term of the lease, e.g. '87 years'"},
+    "planning_status": {"type": ["string", "null"], "description": 'Building / development permit and zoning status'},
+    "inspection_date": {"type": ["string", "null"], "description": 'Date of inspection, YYYY-MM-DD'},
+    "forced_sale_value": {"type": ["number", "null"], "description": 'Forced sale value as a number'},
+    "location_rating": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor'},
+    "accessibility_rating": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor'},
+    "state_of_repair": {"type": ["string", "null"], "description": 'Excellent / Good / Fair / Poor / Dilapidated'},
+    "user_conformity": {"type": ["string", "null"], "description": 'Conforming / Non-conforming with zoning'},
+    "neighbourhood_rating": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor'},
+    "overall_marketability": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor'},
+    "encumbrances": {"type": ["string", "null"], "description": 'Encumbrances, charges, disputes'},
+    "legal_disclaimer": {"type": ["string", "null"], "description": 'Legal disclaimer'},
+    "inspection_limitation": {"type": ["string", "null"], "description": 'Limitations of the inspection'},
+    "purpose_restriction": {"type": ["string", "null"], "description": 'Restriction on use of the report'},
     "notes": _STR,
     "tags": {"type": ["array", "null"], "items": {"type": "string"}},
 }
@@ -104,6 +134,12 @@ Categories:
 the basis of value (e.g. Market Value, Forced Sale Value); assumptions and special assumptions; the valuer's identity \
 (name, qualifications, firm); the opinion of value (capital_value, and annual_rent for rental valuations); method, \
 yield; and EVERY comparable listed (address, date, price or rent, size, price per m²).
+- For valuations also capture the report sections where stated: property (name/number, owner, use/occupancy, \
+highest and best use); location (address, accessibility, land size, GPS coordinates); improvements (building type, \
+accommodation, construction details, services, floor areas, ancillary structures); title (ownership, tenure, source \
+of title, unexpired term, planning status); valuation (date of inspection, date of valuation = record_date, method, \
+market value = capital_value, forced_sale_value); marketability ratings; and assumptions (encumbrances, legal \
+disclaimer, inspection limitations, purpose restriction, valuation assumptions = assumptions). Keep text concise.
 - Address details: the Ghana Post GPS digital address (gps_address, e.g. "GA-183-8164"), location, MMDA \
 (district), region, property type and client.
 - "cost": construction cost data. Capture total cost, cost per m² of gross floor area, and the elemental \

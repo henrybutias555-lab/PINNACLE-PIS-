@@ -101,10 +101,40 @@ class RecordBase(BaseModel):
     affordability_ratio: float | None = None
     stock_notes: str | None = None
 
+    property_name: str | None = None
+    owner: str | None = None
+    use_occupancy: str | None = None
+    highest_best_use: str | None = None
+    gps_coordinates: str | None = None
+    land_size: str | None = None
+    accessibility: str | None = None
+    building_type: str | None = None
+    accommodation: str | None = None
+    construction_details: str | None = None
+    services: str | None = None
+    floor_areas: str | None = None
+    ancillary_structures: str | None = None
+    ownership: str | None = None
+    tenure: str | None = None
+    source_of_title: str | None = None
+    unexpired_term: str | None = None
+    planning_status: str | None = None
+    inspection_date: date | None = None
+    forced_sale_value: float | None = None
+    location_rating: str | None = None
+    accessibility_rating: str | None = None
+    state_of_repair: str | None = None
+    user_conformity: str | None = None
+    neighbourhood_rating: str | None = None
+    overall_marketability: str | None = None
+    encumbrances: str | None = None
+    legal_disclaimer: str | None = None
+    inspection_limitation: str | None = None
+    purpose_restriction: str | None = None
     notes: str | None = None
     tags: list[str] | None = None
 
-    @field_validator("record_date", mode="before")
+    @field_validator("record_date", "inspection_date", mode="before")
     @classmethod
     def _blank_date(cls, v: Any):
         if v in ("", None):
