@@ -112,7 +112,7 @@ def resolve(location: str | None, address: str | None, city: str | None, region:
         city = find_city(text[:6000])
     if not location and area:
         location = area[0]
-    if not location and re.search(r"central business district", text[:6000], re.I):
+    if not location and re.search(r"\b(?:in|within|at)\s+(?:the\s+)?central business district", text[:6000], re.I):
         location = "Central Business District"
     if location:
         location = clean_location(location, city)
@@ -124,6 +124,8 @@ def resolve(location: str | None, address: str | None, city: str | None, region:
     if given and not district and not location:
         location = given  # e.g. "Central Business District" is a place, not an assembly
     district = district or find_mmda(fields) or find_mmda(text[:8000]) or mmda_for(location, city, fields)
+    if district and not region:
+        region = MMDA_REGION.get(district)
     return {"location": location, "district": district, "city": city, "region": region}
 
 
@@ -192,7 +194,7 @@ CITY_MMDA = {
 }
 
 _ASSEMBLY = re.compile(
-    r"([A-Z][A-Za-z'’]+(?:[ -](?:[A-Z][A-Za-z'’]+|and))*?)\s+(Metropolitan|Municipal|District)"
+    r"([A-Z][A-Za-z'’]+(?:[ -](?:[A-Z][A-Za-z'’]+|and))*?)\s+(Metropolitan|Metropolis|Municipality|Municipal|District)"
     r"(?:\s+(?:Chief\s+Executive|Assembly|Council))?", re.M)
 _NOT_PLACE = {"The", "This", "A", "An", "Of", "In", "Within", "Under", "Its", "Our", "And", "Local", "Government"}
 
@@ -203,14 +205,11 @@ _AREA_WORDS = {"central", "business", "commercial", "residential", "industrial",
 
 
 def canonical_mmda(name: str | None) -> str | None:
-    """Known spelling of an MMDA name (case-insensitive), else None."""
+    """Official spelling of one of the 261 MMDAs (ignores case, hyphens, 'Assembly',
+    'Municipality', 'Metropolis'), else None."""
     if not name:
         return None
-    key = re.sub(r"\s+assembly$", "", name.strip(), flags=re.I).lower()
-    for known in ALL_MMDAS:
-        if known.lower() == key:
-            return known
-    return None
+    return _CANONICAL.get(_key(name))
 
 
 def looks_like_mmda(name: str | None, said_assembly: bool = False) -> bool:
@@ -221,7 +220,7 @@ def looks_like_mmda(name: str | None, said_assembly: bool = False) -> bool:
     clean = re.sub(r"\s+assembly$", "", name.strip(), flags=re.I)
     if canonical_mmda(clean):
         return True
-    m = re.fullmatch(r"(.+?)\s+(Metropolitan|Municipal|District)", clean, re.I)
+    m = re.fullmatch(r"(.+?)\s+(Metropolitan|Metropolis|Municipal(?:ity)?|District)", clean, re.I)
     if not m:
         return False
     words = re.split(r"[\s-]+", m.group(1).lower())
@@ -240,7 +239,8 @@ def normalise_mmda(name: str | None, said_assembly: bool = False) -> str | None:
     if known:
         return known
     head, kind = clean.rsplit(" ", 1)
-    return f"{head} {kind.title()}"
+    kind = {"metropolis": "Metropolitan", "municipality": "Municipal"}.get(kind.lower(), kind.title())
+    return f"{head} {kind}"
 
 
 def find_mmda(text: str) -> str | None:
@@ -251,7 +251,8 @@ def find_mmda(text: str) -> str | None:
             words = words[1:]
         if not words or len(words) > 5:
             continue
-        name = f"{' '.join(words)} {m.group(2).title()}"
+        kind = {"metropolis": "Metropolitan", "municipality": "Municipal"}.get(m.group(2).lower(), m.group(2).title())
+        name = f"{' '.join(words)} {kind}"
         said_assembly = bool(re.match(r"\s+(Assembly|Chief\s+Executive|Council)", text[m.end(2):], re.I))
         found = normalise_mmda(name, said_assembly)
         if found:
@@ -283,4 +284,28 @@ CBD_MMDA = {"Accra": "Accra Metropolitan", "Kumasi": "Kumasi Metropolitan", "Tam
 
 # Names offered in the District (MMDA) drop-down: Greater Accra in full, plus the
 # assemblies referenced above. Surveyors can still type any other MMDA.
-ALL_MMDAS = sorted(set(GREATER_ACCRA_MMDAS) | {m for m in AREA_MMDA.values() if m} | {m for m in CITY_MMDA.values() if m})
+from .mmda_data import MMDAS as _MMDAS  # noqa: E402  (all 261 assemblies)
+
+ALL_MMDAS = sorted(name for name, *_ in _MMDAS)
+MMDA_REGION = {name: region for name, region, *_ in _MMDAS}
+
+
+def _key(name: str) -> str:
+    """Spelling-insensitive key: 'Korle-Klottey Municipal Assembly' == 'korle klottey municipal'."""
+    name = re.sub(r"\s+(assembly|council)$", "", name.strip(), flags=re.I)
+    name = re.sub(r"\bmetropolis$", "metropolitan", name, flags=re.I)
+    name = re.sub(r"\bmunicipality$", "municipal", name, flags=re.I)
+    return re.sub(r"[^a-z]", "", name.lower())
+
+
+_CANONICAL = {}
+for _name, _region, _capital, _aliases in _MMDAS:
+    for _n in [_name, *_aliases]:
+        _CANONICAL[_key(_n)] = _name
+
+# A town that is an assembly's capital points to that assembly (not for cities split
+# between several assemblies, which are decided by neighbourhood instead).
+_SPLIT_CITIES = {"Accra", "Kumasi", "Tema", "Sekondi", "Takoradi", "Obuasi", "Sunyani", "Techiman", "Ho", "Wa"}
+for _name, _region, _capital, _aliases in _MMDAS:
+    if _capital and _capital not in _SPLIT_CITIES:
+        CITY_MMDA.setdefault(_capital, _name)
