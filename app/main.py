@@ -109,6 +109,18 @@ def _asset_version() -> str:
 ASSET_VERSION = _asset_version()
 
 
+def _mmda_json() -> str:
+    import json
+
+    from .services.mmda_data import MMDAS
+
+    rows = [[name, region, capital] for name, region, capital, _ in MMDAS]
+    return json.dumps(rows, ensure_ascii=False).replace("</", "<\\/")
+
+
+MMDA_JSON = _mmda_json()
+
+
 def _setup_page(problems: list[str]) -> str:
     items = "".join(f"<li>{html.escape(p)}</li>" for p in problems)
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -188,6 +200,14 @@ app.include_router(imports.router)
 app.include_router(attachments.router)
 
 
+@app.get("/api/mmdas")
+def mmdas():
+    """All 261 Metropolitan, Municipal and District Assemblies with region and capital."""
+    from .services.mmda_data import MMDAS
+
+    return [{"name": n, "region": r, "capital": c} for n, r, c, _ in MMDAS]
+
+
 @app.get("/healthz", include_in_schema=False)
 def healthz():
     return {"status": "alive", "build": BUILD}
@@ -212,4 +232,6 @@ def index():
     page = page.replace('<meta name="viewport"', f'<meta name="pis-version" content="{ASSET_VERSION}">\n  <meta name="viewport"', 1)
     for asset in ("/static/styles.css", "/static/app.js", "/static/vendor/chart.umd.js"):
         page = page.replace(f'"{asset}"', f'"{asset}?v={ASSET_VERSION}"')
+    page = page.replace('<script src="/static/app.js', f"<script>window.PIS_MMDAS = {MMDA_JSON};</script>\n  "
+                        '<script src="/static/app.js', 1)
     return HTMLResponse(page, headers={"Cache-Control": "no-cache"})

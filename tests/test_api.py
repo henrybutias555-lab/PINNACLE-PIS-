@@ -849,3 +849,15 @@ def test_money_amounts_and_currency():
         r = rules.extract(head + text)["records"][0]
         assert (r.get("capital_value"), r.get("forced_sale_value"), r["currency"], r["basis_of_value"]) == (
             mv, fsv, cur, "Market Value"), (text, r)
+
+
+def test_all_261_mmdas_available_to_the_page(client, admin):
+    import json as _json
+    import re as _re
+
+    page = client.get("/").text
+    data = _json.loads(_re.search(r"window\.PIS_MMDAS = (\[.*?\]);</script>", page, _re.S).group(1))
+    assert len(data) == 261 and len({r[1] for r in data}) == 16
+    assert ["Adentan Municipal", "Greater Accra", "Adenta"] in data
+    api = client.get("/api/mmdas", headers=admin).json()
+    assert len(api) == 261 and {"name", "region", "capital"} <= set(api[0])
