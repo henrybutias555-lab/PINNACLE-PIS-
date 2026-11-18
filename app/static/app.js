@@ -306,7 +306,18 @@ async function loadReports() {
 /* Field definitions for the record editor */
 /* Record editor: tabbed like a valuation report. */
 const RATING = ["Excellent", "Very good", "Good", "Fair", "Poor"];
+const BASES = ["Market Value", "Market Rent", "Forced Sale Value", "Fair Value", "Investment Value",
+  "Reinstatement Cost", "Depreciated Replacement Cost", "Mortgage Lending Value"];
+/* One standard basis: "Market Value VALUATION OPINION" -> "Market Value". */
+function basisCanonical(v) {
+  if (!v) return "";
+  const low = String(v).toLowerCase();
+  const hits = BASES.map((b) => [low.indexOf(b.toLowerCase()), b]).filter(([i]) => i >= 0).sort((a, b) => a[0] - b[0]);
+  const primary = hits.filter(([, b]) => b !== "Forced Sale Value");
+  return (primary[0] || hits[0] || [0, String(v).trim()])[1];
+}
 const SELECTS = {
+  basis: BASES,
   rating: RATING,
   repair: ["Excellent", "Good", "Fair", "Poor", "Dilapidated"],
   conformity: ["Conforming", "Partly conforming", "Non-conforming"],
@@ -372,8 +383,9 @@ function fieldHTML([key, label, kind], rec) {
     return `<label>${esc(label)} <span class="muted small">(${MMDAS.length})</span><select name="${key}" class="mmda-select">${mmdaOptions(v)}</select></label>`;
   }
   if (SELECTS[kind]) {
-    const opts = SELECTS[kind].includes(v) || !v ? SELECTS[kind] : [v, ...SELECTS[kind]];
-    return `<label>${esc(label)}<select name="${key}"><option value=""></option>${opts.map((o) => `<option ${o === v ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
+    const val = kind === "basis" ? basisCanonical(v) : v;
+    const opts = SELECTS[kind].includes(val) || !val ? SELECTS[kind] : [val, ...SELECTS[kind]];
+    return `<label>${esc(label)}<select name="${key}"><option value=""></option>${opts.map((o) => `<option ${o === val ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
   }
   if (LISTS[kind] || HINTS[kind]) {
     const list = LISTS[kind] ? ` list="${LISTS[kind]}"` : "";
@@ -400,7 +412,7 @@ function recordEditorHTML(rec, idx) {
     let html = grid(fields);
     if (more) html += `<p class="sub-head">Also recorded</p>${grid(more)}`;
     if (key === "valuation") {
-      html += `<p class="sub-head">Comparables (${comps.length})</p>${comps.length ? table(["Address", "Date", "Price", "Rent", "Size m²", "Price/m²", "Notes"], comps.map((c) => [esc(c.address), esc(c.date), { v: fmt(c.price), num: true }, { v: fmt(c.rent), num: true }, { v: fmt(c.size_sqm), num: true }, { v: fmt(c.price_per_sqm), num: true }, esc(c.notes)])) : '<p class="muted small">None extracted.</p>'}`;
+      html += comparablesEditorHTML(comps);
     }
     if (key === "cost") {
       html += `<p class="sub-head">Elemental cost breakdown</p><div class="form-grid">${BREAKDOWN_KEYS.map((k) => `<label>${k.replace("_", " ")}<input type="number" step="any" name="bd_${k}" value="${esc(bd[k] ?? "")}"></label>`).join("")}</div>`;
@@ -418,6 +430,24 @@ function recordEditorHTML(rec, idx) {
   </div>`;
 }
 
+/* Comparables: an editable table (one row per comparable). */
+const COMP_FIELDS = [["address", "Address / location"], ["property_type", "Type"], ["date", "Date"],
+  ["price", "Price", "num"], ["rent", "Rent", "num"], ["size_sqm", "Size m²", "num"], ["price_per_sqm", "Price / m²", "num"],
+  ["notes", "Remarks"]];
+let compRowSeq = 0;
+function compRowHTML(c = {}) {
+  const i = compRowSeq++;
+  return `<tr data-row="${i}">${COMP_FIELDS.map(([k, , kind]) => `<td><input name="cmp_${i}_${k}" value="${esc(c[k] ?? "")}"${kind === "num" ? ' type="number" step="any" data-kind="num"' : ""} aria-label="${k}"></td>`).join("")}
+    <td><button type="button" class="btn small danger comp-del" title="Remove comparable">✕</button></td></tr>`;
+}
+function comparablesEditorHTML(comps) {
+  return `<p class="sub-head">Comparables (<span class="comp-count">${comps.length}</span>)</p>
+    <div class="sheet-wrap comp-wrap"><table class="sheet comp-table"><thead><tr>${COMP_FIELDS.map(([, l]) => `<th>${esc(l)}</th>`).join("")}<th></th></tr></thead>
+    <tbody>${comps.map(compRowHTML).join("")}</tbody></table></div>
+    <button type="button" class="btn small comp-add">+ Add comparable</button>
+    <span class="muted small">Comparables found in the report are listed here; add, correct or remove them before saving.</span>`;
+}
+
 /* Tabs + attachments for an editor that is now in the page. */
 function initRecordEditor(el) {
   const show = (key) => {
@@ -431,6 +461,19 @@ function initRecordEditor(el) {
   show(state.lastTab);
   const att = $(".attach-panel", el);
   if (att && att.dataset.recordId) loadAttachments(att, att.dataset.recordId);
+  const tbody = $(".comp-table tbody", el);
+  if (tbody) {
+    const count = () => { $(".comp-count", el).textContent = $$("tr", tbody).length; };
+    const wire = (tr) => { $(".comp-del", tr).onclick = () => { tr.remove(); count(); }; };
+    $$("tr", tbody).forEach(wire);
+    $(".comp-add", el).onclick = () => {
+      tbody.insertAdjacentHTML("beforeend", compRowHTML());
+      const tr = tbody.lastElementChild; wire(tr); count(); $("input", tr).focus();
+    };
+    if (el.closest("form") && $$("input, select, textarea", el).some((x) => x.disabled)) {
+      $$(".comp-add, .comp-del", el).forEach((b) => (b.disabled = true));
+    }
+  }
   const mmda = $("select[name=district]", el), region = $("[name=region]", el);
   if (mmda && region) mmda.addEventListener("change", () => {
     if (!region.value.trim() && MMDA_REGION[mmda.value]) region.value = MMDA_REGION[mmda.value];
@@ -506,10 +549,19 @@ async function showImage(a) {
 
 function readRecordEditor(el, original) {
   const rec = { comparables: original.comparables || null };
+  const comps = {};
+  const hasCompEditor = !!$(".comp-table", el);
   $$("input, select, textarea", el).forEach((inp) => {
     const name = inp.name;
     if (!name) return;
     let v = inp.value.trim();
+    const cm = name.match(/^cmp_(\d+)_(\w+)$/);
+    if (cm) {
+      if (v === "") return;
+      comps[cm[1]] = comps[cm[1]] || {};
+      comps[cm[1]][cm[2]] = inp.dataset.kind === "num" ? Number(v) : v;
+      return;
+    }
     if (name.startsWith("bd_")) {
       if (v !== "") { rec.cost_breakdown = rec.cost_breakdown || {}; rec.cost_breakdown[name.slice(3)] = Number(v); }
       return;
@@ -520,6 +572,11 @@ function readRecordEditor(el, original) {
     if (inp.dataset.kind === "int") v = parseInt(v, 10);
     rec[name] = v;
   });
+  if (hasCompEditor) {
+    const list = Object.keys(comps).sort((a, b) => a - b).map((k) => comps[k]);
+    list.forEach((c) => { if (c.price && c.size_sqm && !c.price_per_sqm) c.price_per_sqm = Math.round((c.price / c.size_sqm) * 100) / 100; });
+    rec.comparables = list.length ? list : null;
+  }
   if (!rec.currency) rec.currency = (state.health && state.health.default_currency) || "GHS";
   return rec;
 }
@@ -634,7 +691,7 @@ function markChanges(panel, saved) {
     if (!old) { el.insertAdjacentHTML("afterbegin", '<p class="was-hint">New record: not in the saved data</p>'); changed++; return; }
     $$("input[name], select[name], textarea[name]", el).forEach((inp) => {
       const name = inp.name;
-      if (name.startsWith("bd_")) return;
+      if (name.startsWith("bd_") || name.startsWith("cmp_")) return;
       let now = inp.value;
       if (name === "tags") now = now.split(",").map((t) => t.trim()).filter(Boolean);
       const was = old[name];
@@ -735,7 +792,7 @@ const GRID_COLS = [
   ["record_date", "Date", "date"], ["category", "Category", "cat"], ["gps_address", "GPS address"],
   ["location", "Location"], ["district", "MMDA", "mmda"], ["city", "City"],
   ["region", "Region", "list:dl-regions"], ["property_type", "Property type", "list:dl-types"], ["client", "Client"],
-  ["purpose", "Purpose", "list:dl-purposes"], ["basis_of_value", "Basis of value", "list:dl-bases"], ["valuer", "Valuer"],
+  ["purpose", "Purpose", "list:dl-purposes"], ["basis_of_value", "Basis of value", "basis"], ["valuer", "Valuer"],
   ["property_name", "Property name / no."], ["owner", "Owner"], ["tenure", "Tenure", "list:dl-tenure"],
   ["address", "Address"], ["size_sqm", "Floor area m²", "num"], ["inspection_date", "Date of inspection", "date"],
   ["capital_value", "Market value", "num"], ["forced_sale_value", "Forced sale value", "num"],
@@ -753,6 +810,7 @@ function sheetCell(rec, [key, , kind]) {
   const ro = can("junior") ? "" : " disabled";
   const common = `data-id="${rec.id}" data-key="${key}" data-kind="${kind || ""}"${ro}`;
   if (kind === "mmda") return `<select ${common}>${mmdaOptions(v, "")}</select>`;
+  if (kind === "basis") { const b = basisCanonical(v); return `<select ${common}><option value=""></option>${(BASES.includes(b) || !b ? BASES : [b, ...BASES]).map((o) => `<option ${o === b ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`; }
   if (kind === "cat") return `<select ${common}>${["valuation", "cost", "housing"].map((c) => `<option ${c === v ? "selected" : ""}>${c}</option>`).join("")}</select>`;
   const type = kind === "num" ? "number" : kind === "date" ? "date" : "text";
   const list = kind && kind.startsWith("list:") ? ` list="${kind.slice(5)}"` : "";

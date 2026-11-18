@@ -44,11 +44,25 @@ def _pdf_text(path: Path) -> str:
 def _docx_text(path: Path) -> str:
     import docx
 
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
     document = docx.Document(str(path))
-    parts = [p.text for p in document.paragraphs]
-    for table in document.tables:
-        for row in table.rows:
-            parts.append(" | ".join(cell.text.strip() for cell in row.cells))
+    parts = []
+    # Walk the body in order so a table stays under its heading (e.g. "Comparable evidence").
+    for child in document.element.body.iterchildren():
+        tag = child.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            parts.append(Paragraph(child, document).text)
+        elif tag == "tbl":
+            for row in Table(child, document).rows:
+                cells, seen = [], set()
+                for cell in row.cells:  # merged cells repeat; keep each once
+                    if id(cell._tc) in seen:
+                        continue
+                    seen.add(id(cell._tc))
+                    cells.append(" ".join(cell.text.split()))
+                parts.append(" | ".join(cells))
     return "\n".join(parts)
 
 

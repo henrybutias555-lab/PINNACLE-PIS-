@@ -53,6 +53,22 @@ def _fix_mmda_values() -> int:
     return changed
 
 
+def _fix_basis_values() -> int:
+    """Saved bases of value with extra words ('Market Value VALUATION OPINION') -> one standard basis."""
+    from .models import Record
+    from .services.rules import normalise_basis
+
+    changed = 0
+    with SessionLocal() as db:
+        for rec in db.scalars(select(Record).where(Record.basis_of_value.is_not(None))):
+            clean = normalise_basis(rec.basis_of_value)
+            if clean != rec.basis_of_value:
+                rec.basis_of_value = clean
+                changed += 1
+        db.commit()
+    return changed
+
+
 def init_db() -> None:
     """Create tables and the first admin account. Safe to call repeatedly and concurrently."""
     global _initialised
@@ -65,7 +81,7 @@ def init_db() -> None:
         Base.metadata.create_all(engine)
         for column in add_missing_columns(engine):
             log.info("Database upgraded: added column %s", column)
-        fixed = _fix_mmda_values()
+        fixed = _fix_mmda_values() + _fix_basis_values()
         if fixed:
             log.warning("Corrected %d MMDA value(s) that were not assemblies", fixed)
         with SessionLocal() as db:

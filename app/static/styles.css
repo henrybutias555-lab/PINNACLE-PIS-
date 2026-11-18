@@ -205,3 +205,9 @@ fieldset legend { font-weight: 600; color: var(--text); }
   .tab-btn, .tab-btn.active { border: 1px solid var(--border); border-radius: 999px; margin: 0; padding: .35rem .7rem; }
   .tab-btn.active { background: var(--brand); color: #fff; border-color: var(--brand); }
 }
+
+/* Comparables editor */
+.comp-wrap { max-height: none; margin-bottom: .5rem; }
+.comp-table input { min-width: 7rem; }
+.comp-table td:first-child input { min-width: 13rem; }
+.comp-table td:last-child { padding: .2rem; }

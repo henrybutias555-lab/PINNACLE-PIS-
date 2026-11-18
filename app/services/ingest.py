@@ -84,6 +84,8 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         rec.setdefault("currency", settings.default_currency)
         rec.setdefault("category", draft.get("report_type") or "valuation")
         _derive_rates(rec)
+        if rec.get("basis_of_value"):
+            rec["basis_of_value"] = rules.normalise_basis(rec["basis_of_value"])
         if report.extraction_method == "ai":
             # Check the AI's place fields and fill blanks from the report text with the built-in rules.
             place = places.resolve(rec.get("location"), rec.get("address"), rec.get("city"), rec.get("region"),
