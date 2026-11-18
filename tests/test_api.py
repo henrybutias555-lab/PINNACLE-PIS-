@@ -305,3 +305,12 @@ def test_render_guard_and_healthz(client, monkeypatch):
     assert client.get("/").status_code == 503
     r = client.get("/healthz")
     assert r.status_code == 200 and r.json()["status"] == "alive"
+
+
+def test_index_busts_asset_cache(client):
+    from app.main import ASSET_VERSION
+
+    r = client.get("/")
+    assert r.headers["cache-control"] == "no-cache"
+    assert f"/static/app.js?v={ASSET_VERSION}" in r.text
+    assert f"/static/styles.css?v={ASSET_VERSION}" in r.text

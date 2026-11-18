@@ -66,6 +66,19 @@ app = FastAPI(title="Pinnacle Intelligence System", version="1.0.0", lifespan=li
 BUILD = (os.getenv("VERCEL_GIT_COMMIT_SHA") or os.getenv("RENDER_GIT_COMMIT") or "local")[:7]
 
 
+def _asset_version() -> str:
+    """Changes whenever the front-end files change (works locally too)."""
+    import hashlib
+
+    digest = hashlib.sha1()
+    for name in ("styles.css", "app.js"):
+        digest.update((STATIC_DIR / name).read_bytes())
+    return digest.hexdigest()[:10]
+
+
+ASSET_VERSION = _asset_version()
+
+
 def _setup_page(problems: list[str]) -> str:
     items = "".join(f"<li>{html.escape(p)}</li>" for p in problems)
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -148,4 +161,9 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    # Version the asset URLs so browsers fetch new CSS/JS after every deploy,
+    # and never cache the page itself.
+    page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    for asset in ("/static/styles.css", "/static/app.js"):
+        page = page.replace(f'"{asset}"', f'"{asset}?v={ASSET_VERSION}"')
+    return HTMLResponse(page, headers={"Cache-Control": "no-cache"})
