@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pinnacle Intelligence System</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/vendor/chart.umd.js"></script>
+</head>
+<body>
+  <!-- Login -->
+  <section id="login-view" class="login-wrap hidden">
+    <form id="login-form" class="card login-card">
+      <div class="brand-mark">PIS</div>
+      <h1>Pinnacle Intelligence System</h1>
+      <p class="muted">Pinnacle Estate Surveyors — internal platform</p>
+      <label>Email<input name="email" type="email" required autocomplete="username"></label>
+      <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+      <button class="btn primary" type="submit">Sign in</button>
+      <p id="login-error" class="error"></p>
+    </form>
+  </section>
+
+  <!-- App -->
+  <div id="app-view" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark sm">PIS</span><div><strong>Pinnacle</strong><small>Intelligence System</small></div></div>
+      <nav id="nav">
+        <a data-view="dashboard" href="#dashboard">Dashboard</a>
+        <a data-view="ingest" href="#ingest" data-min-role="junior">Upload &amp; Review</a>
+        <a data-view="records" href="#records">Data &amp; Search</a>
+        <a data-view="intel" href="#intel">Market &amp; Cost Intelligence</a>
+        <a data-view="comps" href="#comps">Comparables</a>
+        <a data-view="admin" href="#admin" data-min-role="admin">Users &amp; Activity</a>
+      </nav>
+      <div class="sidebar-foot">
+        <div id="ai-status" class="pill"></div>
+        <div id="who" class="muted small"></div>
+        <button id="pw-btn" class="btn link small">Change password</button>
+        <button id="logout-btn" class="btn ghost small">Sign out</button>
+      </div>
+    </aside>
+
+    <main>
+      <!-- Dashboard -->
+      <section data-page="dashboard" class="page">
+        <header class="page-head"><h2>Dashboard</h2></header>
+        <div id="kpis" class="kpis"></div>
+        <div class="grid two">
+          <div class="card"><h3>Records by location</h3><div id="dash-locations"></div></div>
+          <div class="card"><h3>Recent reports</h3><div id="dash-reports"></div></div>
+        </div>
+        <div class="card"><h3>Capital value per m² — quarterly trend (all areas)</h3><div class="chart-box"><canvas id="dash-chart"></canvas></div></div>
+      </section>
+
+      <!-- Upload & review -->
+      <section data-page="ingest" class="page">
+        <header class="page-head"><h2>Upload &amp; Review Reports</h2></header>
+        <div class="card">
+          <div id="dropzone" class="dropzone">
+            <p><strong>Drop valuation, cost or housing reports here</strong></p>
+            <p class="muted" id="upload-hint">PDF, Word (.docx), text or scanned images — single or bulk</p>
+            <input id="file-input" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.webp">
+            <button class="btn primary" id="pick-files">Choose files</button>
+          </div>
+          <div id="upload-status" class="muted small"></div>
+        </div>
+        <div class="card">
+          <div class="row between"><h3>Reports</h3>
+            <select id="report-status-filter"><option value="">All statuses</option><option>extracted</option><option>uploaded</option><option>confirmed</option><option>failed</option><option>rejected</option></select>
+          </div>
+          <div id="reports-table"></div>
+        </div>
+        <div id="review-panel" class="card hidden"></div>
+      </section>
+
+      <!-- Records -->
+      <section data-page="records" class="page">
+        <header class="page-head"><h2>Data &amp; Search</h2>
+          <div class="actions">
+            <button class="btn" id="new-record" data-min-role="junior">+ Add record</button>
+            <button class="btn" id="export-csv">Export CSV</button>
+            <button class="btn primary" id="export-docx">Evidence table (Word)</button>
+          </div>
+        </header>
+        <form id="record-filters" class="card filters"></form>
+        <div class="card"><div id="records-table"></div><div id="records-pager" class="pager"></div></div>
+      </section>
+
+      <!-- Intelligence -->
+      <section data-page="intel" class="page">
+        <header class="page-head"><h2>Market &amp; Cost Intelligence</h2></header>
+        <form id="intel-filters" class="card filters"></form>
+        <div id="intel-metrics" class="kpis"></div>
+        <div class="grid two">
+          <div class="card">
+            <div class="row between"><h3>Trend</h3>
+              <div class="row gap"><select id="trend-metric"></select>
+              <select id="trend-interval"><option value="quarter">Quarterly</option><option value="month">Monthly</option><option value="year">Yearly</option></select></div>
+            </div>
+            <div class="chart-box"><canvas id="trend-chart"></canvas></div>
+          </div>
+          <div class="card">
+            <h3>Construction cost vs capital value (per m²)</h3>
+            <div class="chart-box"><canvas id="cross-chart"></canvas></div>
+          </div>
+        </div>
+        <div class="card"><div class="row between"><h3>Averages by area and property type</h3><select id="group-by">
+          <option value="location,property_type">Location × type</option><option value="location">Location</option><option value="city">City</option><option value="property_type">Property type</option><option value="purpose">Purpose</option></select></div>
+          <div id="breakdown-table"></div></div>
+        <div class="card">
+          <div class="row between"><h3>Suggested market commentary</h3>
+            <div class="row gap"><select id="comm-tone"><option value="formal">Full</option><option value="concise">Concise</option></select>
+            <button class="btn primary" id="gen-commentary">Generate</button></div></div>
+          <p id="comm-meta" class="muted small"></p>
+          <textarea id="commentary" rows="12" placeholder="Generate commentary from the filtered data, then edit before use."></textarea>
+          <div class="row gap"><button class="btn" id="comm-docx">Export Word</button><button class="btn" id="comm-txt">Export text</button><button class="btn" id="comm-copy">Copy</button></div>
+        </div>
+      </section>
+
+      <!-- Comparables -->
+      <section data-page="comps" class="page">
+        <header class="page-head"><h2>Comparable Evidence Finder</h2></header>
+        <form id="comp-form" class="card filters">
+          <label>Evidence type<select name="category"><option value="valuation">Valuation comparables</option><option value="cost">Construction cost</option><option value="housing">Housing data</option></select></label>
+          <label>Subject location<input name="location" list="dl-locations" placeholder="e.g. East Legon"></label>
+          <label>City<input name="city" list="dl-cities"></label>
+          <label>Property type<input name="property_type" list="dl-types"></label>
+          <label>Size (m²)<input name="size_sqm" type="number" step="any" min="0"></label>
+          <label>Valuation date<input name="ref_date" type="date"></label>
+          <label>Results<input name="limit" type="number" value="10" min="1" max="50"></label>
+          <div class="filter-actions"><button class="btn primary" type="submit">Find comparables</button></div>
+        </form>
+        <div class="card"><div class="row between"><h3>Ranked evidence</h3>
+          <div class="row gap"><button class="btn" id="comp-csv">Selected → CSV</button><button class="btn primary" id="comp-docx">Selected → Word table</button></div></div>
+          <div id="comp-results" class="muted">Enter subject property details and search.</div></div>
+      </section>
+
+      <!-- Admin -->
+      <section data-page="admin" class="page">
+        <header class="page-head"><h2>Users &amp; Activity</h2></header>
+        <div class="card">
+          <h3>Add user</h3>
+          <form id="user-form" class="filters">
+            <label>Full name<input name="full_name"></label>
+            <label>Email<input name="email" type="email" required></label>
+            <label>Temporary password<input name="password" type="password" minlength="8" required></label>
+            <label>Role<select name="role"><option value="viewer">Viewer</option><option value="junior">Junior Surveyor</option><option value="senior">Senior Surveyor</option><option value="admin">Admin</option></select></label>
+            <div class="filter-actions"><button class="btn primary" type="submit">Create</button></div>
+          </form>
+          <div id="users-table"></div>
+        </div>
+        <div class="card"><h3>Activity log</h3><div id="activity-table" class="scroll"></div></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="modal"><div id="modal-body"></div></dialog>
+  <div id="toast" class="toast hidden"></div>
+
+  <datalist id="dl-locations"></datalist><datalist id="dl-cities"></datalist><datalist id="dl-types"></datalist>
+  <script src="/static/app.js"></script>
+</body>
+</html>

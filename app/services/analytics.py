@@ -1,0 +1,234 @@
+"""Statistics, trends, cross-analysis and comparable search over stored records."""
+from __future__ import annotations
+
+import statistics
+from collections import Counter, defaultdict
+from datetime import date
+
+from ..models import Record
+
+METRICS = {
+    "capital_value": ("valuation", "Capital value"),
+    "value_per_sqm": ("valuation", "Capital value per m²"),
+    "annual_rent": ("valuation", "Annual rent"),
+    "rent_per_sqm": ("valuation", "Annual rent per m²"),
+    "yield_pct": ("valuation", "Yield (%)"),
+    "cost_per_sqm": ("cost", "Construction cost per m²"),
+    "total_cost": ("cost", "Total construction cost"),
+    "avg_price": ("housing", "Average house price"),
+    "avg_monthly_rent": ("housing", "Average monthly rent"),
+    "affordability_ratio": ("housing", "Affordability ratio"),
+    "supply_units": ("housing", "Supply (units)"),
+}
+RATIO_METRICS = {"yield_pct", "affordability_ratio"}
+
+
+def _stats(values: list[float]) -> dict | None:
+    if not values:
+        return None
+    return {
+        "count": len(values),
+        "mean": round(statistics.fmean(values), 2),
+        "median": round(statistics.median(values), 2),
+        "min": round(min(values), 2),
+        "max": round(max(values), 2),
+    }
+
+
+def _values(records: list[Record], metric: str) -> list[float]:
+    return [float(getattr(r, metric)) for r in records if getattr(r, metric) is not None]
+
+
+def dominant_currency(records: list[Record]) -> str | None:
+    counts = Counter(r.currency for r in records if r.currency)
+    return counts.most_common(1)[0][0] if counts else None
+
+
+def summary(records: list[Record]) -> dict:
+    currencies = Counter(r.currency for r in records if r.currency)
+    currency = dominant_currency(records)
+    # Monetary stats only mix records of one currency.
+    same_cur = [r for r in records if r.currency == currency] if currency else records
+    metrics = {}
+    for metric, (_, label) in METRICS.items():
+        pool = records if metric in RATIO_METRICS or metric == "supply_units" else same_cur
+        s = _stats(_values(pool, metric))
+        if s:
+            metrics[metric] = {"label": label, **s}
+    dates = sorted(r.record_date for r in records if r.record_date)
+    return {
+        "record_count": len(records),
+        "by_category": dict(Counter(r.category for r in records)),
+        "by_property_type": dict(Counter((r.property_type or "unspecified") for r in records).most_common(10)),
+        "top_locations": dict(Counter((r.location or r.city or "unspecified") for r in records).most_common(10)),
+        "currency": currency,
+        "other_currencies_excluded": {c: n for c, n in currencies.items() if c != currency},
+        "date_range": [dates[0].isoformat(), dates[-1].isoformat()] if dates else None,
+        "metrics": metrics,
+    }
+
+
+def breakdown(records: list[Record], group_by: list[str]) -> list[dict]:
+    currency = dominant_currency(records)
+    groups: dict[tuple, list[Record]] = defaultdict(list)
+    for r in records:
+        key = tuple((getattr(r, g) or "unspecified") for g in group_by)
+        groups[key].append(r)
+    rows = []
+    for key, recs in groups.items():
+        same = [r for r in recs if r.currency == currency]
+        row = {g: k for g, k in zip(group_by, key)}
+        row["count"] = len(recs)
+        for metric in ("value_per_sqm", "capital_value", "annual_rent", "yield_pct", "cost_per_sqm",
+                       "avg_price", "avg_monthly_rent"):
+            vals = _values(recs if metric in RATIO_METRICS else same, metric)
+            row[metric] = round(statistics.fmean(vals), 2) if vals else None
+        rows.append(row)
+    rows.sort(key=lambda r: -r["count"])
+    return rows
+
+
+def _period(d: date, interval: str) -> str:
+    if interval == "year":
+        return str(d.year)
+    if interval == "month":
+        return f"{d.year}-{d.month:02d}"
+    return f"{d.year}-Q{(d.month - 1) // 3 + 1}"
+
+
+def trend(records: list[Record], metric: str, interval: str = "quarter") -> list[dict]:
+    currency = dominant_currency(records)
+    pool = records if metric in RATIO_METRICS else [r for r in records if r.currency == currency]
+    buckets: dict[str, list[float]] = defaultdict(list)
+    for r in pool:
+        v = getattr(r, metric)
+        if v is not None and r.record_date:
+            buckets[_period(r.record_date, interval)].append(float(v))
+    series = []
+    prev = None
+    for period in sorted(buckets):
+        vals = buckets[period]
+        mean = round(statistics.fmean(vals), 2)
+        change = round((mean - prev) / prev * 100, 1) if prev else None
+        series.append({"period": period, "mean": mean, "median": round(statistics.median(vals), 2),
+                       "count": len(vals), "change_pct": change})
+        prev = mean
+    return series
+
+
+def cross_analysis(records: list[Record], interval: str = "year") -> list[dict]:
+    """Construction cost per m² vs capital value per m² over time (same currency)."""
+    cost = {p["period"]: p for p in trend([r for r in records if r.category == "cost"], "cost_per_sqm", interval)}
+    value = {p["period"]: p for p in trend([r for r in records if r.category == "valuation"], "value_per_sqm", interval)}
+    rows = []
+    for period in sorted(set(cost) | set(value)):
+        c = cost.get(period, {}).get("mean")
+        v = value.get(period, {}).get("mean")
+        rows.append({
+            "period": period,
+            "cost_per_sqm": c,
+            "value_per_sqm": v,
+            "cost_to_value_pct": round(c / v * 100, 1) if c and v else None,
+            "development_margin_per_sqm": round(v - c, 2) if c and v else None,
+        })
+    return rows
+
+
+def find_comparables(candidates: list[Record], *, location: str | None, property_type: str | None,
+                     size_sqm: float | None, ref_date: date | None, limit: int = 10) -> list[dict]:
+    """Rank records by similarity to a subject property (0-100 score)."""
+    ref_date = ref_date or date.today()
+    out = []
+    for r in candidates:
+        score = 0.0
+        reasons = []
+        if location:
+            loc = location.lower()
+            if r.location and r.location.lower() == loc:
+                score += 40; reasons.append("same location")
+            elif any(loc in (x or "").lower() for x in (r.location, r.address)):
+                score += 30; reasons.append("location match")
+            elif r.city and r.city.lower() == loc:
+                score += 15; reasons.append("same city")
+        else:
+            score += 20
+        if property_type:
+            if r.property_type and r.property_type.lower() == property_type.lower():
+                score += 25; reasons.append("same property type")
+        else:
+            score += 12
+        if size_sqm and r.size_sqm:
+            diff = abs(r.size_sqm - size_sqm) / size_sqm
+            score += max(0.0, 20 * (1 - diff)); reasons.append(f"size within {round(diff * 100)}%")
+        elif not size_sqm:
+            score += 10
+        if r.record_date:
+            months = abs((ref_date - r.record_date).days) / 30.4
+            score += max(0.0, 15 * (1 - months / 36)); reasons.append(f"{round(months)} months old")
+        out.append({"score": round(score, 1), "reasons": reasons, "record": r})
+    out.sort(key=lambda x: -x["score"])
+    return out[:limit]
+
+
+def _fmt(value: float | None, currency: str | None = None, pct: bool = False) -> str:
+    if value is None:
+        return "n/a"
+    if pct:
+        return f"{value:.2f}%"
+    return f"{currency + ' ' if currency else ''}{value:,.0f}"
+
+
+def template_commentary(stats: dict, trends: dict, scope: str) -> str:
+    """Rule-based commentary used when Claude is not configured."""
+    m = stats["metrics"]
+    cur = stats.get("currency")
+    n = stats["record_count"]
+    if n == 0:
+        return f"No records are held in the Pinnacle Intelligence System for {scope}. Commentary cannot be prepared."
+    paras = []
+    dr = stats.get("date_range")
+    period = f" dated between {dr[0]} and {dr[1]}" if dr else ""
+    paras.append(
+        f"This commentary draws on {n} record{'s' if n != 1 else ''} held in the firm's database for {scope}{period}. "
+        + ("The evidence base is limited and the figures below should be treated with caution. " if n < 5 else "")
+    )
+    val_bits = []
+    if "value_per_sqm" in m:
+        s = m["value_per_sqm"]
+        val_bits.append(f"capital values averaged {_fmt(s['mean'], cur)} per m² (range {_fmt(s['min'], cur)} to {_fmt(s['max'], cur)}, {s['count']} observations)")
+    elif "capital_value" in m:
+        s = m["capital_value"]
+        val_bits.append(f"adopted capital values averaged {_fmt(s['mean'], cur)} (median {_fmt(s['median'], cur)})")
+    if "annual_rent" in m:
+        val_bits.append(f"annual rents averaged {_fmt(m['annual_rent']['mean'], cur)}")
+    if "yield_pct" in m:
+        s = m["yield_pct"]
+        val_bits.append(f"yields ranged from {_fmt(s['min'], pct=True)} to {_fmt(s['max'], pct=True)} with a mean of {_fmt(s['mean'], pct=True)}")
+    if val_bits:
+        paras.append("Valuation evidence indicates that " + "; ".join(val_bits) + ".")
+    if "cost_per_sqm" in m:
+        s = m["cost_per_sqm"]
+        text = (f"Construction cost evidence shows an average of {_fmt(s['mean'], cur)} per m² of gross floor area, "
+                f"ranging from {_fmt(s['min'], cur)} to {_fmt(s['max'], cur)} per m².")
+        t = trends.get("cost_per_sqm") or []
+        if len(t) >= 2 and t[-1].get("change_pct") is not None:
+            text += f" The most recent period ({t[-1]['period']}) moved {t[-1]['change_pct']:+.1f}% on the previous period."
+        paras.append(text)
+    housing = []
+    if "avg_price" in m:
+        housing.append(f"average house prices of {_fmt(m['avg_price']['mean'], cur)}")
+    if "avg_monthly_rent" in m:
+        housing.append(f"average monthly rents of {_fmt(m['avg_monthly_rent']['mean'], cur)}")
+    if "affordability_ratio" in m:
+        housing.append(f"an average affordability ratio of {m['affordability_ratio']['mean']:.1f}")
+    if housing:
+        paras.append("Housing market data records " + ", ".join(housing) + ".")
+    t = trends.get("value_per_sqm") or []
+    if len(t) >= 2:
+        first, last = t[0], t[-1]
+        if first["mean"]:
+            change = (last["mean"] - first["mean"]) / first["mean"] * 100
+            direction = "increased" if change > 0 else "decreased"
+            paras.append(f"Between {first['period']} and {last['period']} average capital values per m² {direction} by {abs(change):.1f}%.")
+    paras.append("These figures are derived from the firm's own report data and should be read alongside current market enquiries.")
+    return "\n\n".join(p.strip() for p in paras if p.strip())

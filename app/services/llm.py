@@ -1,0 +1,215 @@
+"""Claude integration: document data extraction and market commentary.
+
+Used only when an Anthropic credential is configured (see ``settings.ai_enabled``).
+Every call site has a non-AI fallback, so the system keeps working offline.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import logging
+from functools import lru_cache
+from pathlib import Path
+
+import anthropic
+
+from ..config import settings
+
+log = logging.getLogger(__name__)
+
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+MAX_INLINE_BYTES = 30 * 1024 * 1024  # stay under the 32 MB request limit
+MAX_TEXT_CHARS = 400_000
+
+_STR = {"type": ["string", "null"]}
+_NUM = {"type": ["number", "null"]}
+_INT = {"type": ["integer", "null"]}
+
+_COMPARABLE = {
+    "type": "object",
+    "properties": {
+        "address": _STR, "property_type": _STR, "date": _STR, "price": _NUM, "rent": _NUM,
+        "size_sqm": _NUM, "price_per_sqm": _NUM, "notes": _STR,
+    },
+}
+_BREAKDOWN = {
+    "type": "object",
+    "properties": {
+        "preliminaries": _NUM, "substructure": _NUM, "superstructure": _NUM, "finishes": _NUM,
+        "services": _NUM, "external_works": _NUM, "contingency": _NUM, "other": _NUM,
+    },
+}
+_RECORD_PROPS = {
+    "category": {"type": "string", "enum": ["valuation", "cost", "housing"]},
+    "title": _STR, "address": _STR, "location": _STR, "city": _STR, "region": _STR,
+    "property_type": _STR, "purpose": _STR, "client": _STR,
+    "record_date": {"type": ["string", "null"], "description": "ISO date YYYY-MM-DD"},
+    "currency": {"type": "string", "description": "ISO currency code, e.g. GHS, USD"},
+    "size_sqm": _NUM,
+    "valuation_basis": {"type": ["string", "null"], "enum": ["capital", "rental", "both", None]},
+    "method": _STR, "capital_value": _NUM, "annual_rent": _NUM, "yield_pct": _NUM,
+    "value_per_sqm": _NUM, "rent_per_sqm": _NUM, "assumptions": _STR,
+    "comparables": {"type": ["array", "null"], "items": _COMPARABLE},
+    "total_cost": _NUM, "cost_per_sqm": _NUM,
+    "cost_breakdown": {"anyOf": [_BREAKDOWN, {"type": "null"}]},
+    "specification": _STR,
+    "avg_price": _NUM, "avg_monthly_rent": _NUM, "supply_units": _INT, "demand_level": _STR,
+    "affordability_ratio": _NUM, "stock_notes": _STR,
+    "notes": _STR,
+    "tags": {"type": ["array", "null"], "items": {"type": "string"}},
+}
+
+
+def _strict(obj: dict) -> dict:
+    """Make every object in the schema closed with all properties required (nullable)."""
+    if obj.get("type") == "object" or (isinstance(obj.get("type"), list) and "object" in obj["type"]):
+        props = obj.get("properties", {})
+        obj["required"] = list(props)
+        obj["additionalProperties"] = False
+        for v in props.values():
+            _strict(v)
+    if "items" in obj:
+        _strict(obj["items"])
+    for alt in obj.get("anyOf", []):
+        _strict(alt)
+    return obj
+
+
+EXTRACTION_SCHEMA = _strict({
+    "type": "object",
+    "properties": {
+        "report_type": {"type": "string", "enum": ["valuation", "cost", "housing"]},
+        "title": _STR,
+        "summary": {"type": ["string", "null"], "description": "2-3 sentence summary of the report"},
+        "records": {"type": "array", "items": {"type": "object", "properties": _RECORD_PROPS}},
+    },
+})
+
+EXTRACTION_SYSTEM = """You are the data-extraction engine of the Pinnacle Intelligence System, an internal tool for \
+Pinnacle Estate Surveyors (a real estate valuation, construction cost and housing advisory firm).
+
+Read the professional report provided and extract structured data for the firm's market database.
+
+Categories:
+- "valuation": capital or rental valuations. Capture the subject property's adopted value(s), method, yield, \
+basis, assumptions, and EVERY comparable listed (address, date, price or rent, size, price per m²).
+- "cost": construction cost data. Capture total cost, cost per m² of gross floor area, and the elemental \
+breakdown (preliminaries, substructure, superstructure, finishes, services, external works, contingency, other).
+- "housing": residential market data. Capture average prices, average monthly rents, supply in units, demand \
+level (low / moderate / high), affordability ratios and housing stock notes.
+
+Rules:
+- Produce one record per distinct subject property, cost project or market area. Most reports have one.
+- Use null for anything not stated. Never invent or estimate figures that are not in the document.
+- Convert sizes to square metres (1 sq ft = 0.092903 m²). Express rent as annual rent in annual_rent and as \
+monthly rent in avg_monthly_rent only for housing records.
+- Amounts are plain numbers (no symbols or commas); put the currency's ISO code in currency \
+(Ghana cedi = GHS). Default to {currency} if the report does not state one.
+- "location" is the neighbourhood / suburb / area (e.g. "East Legon"); "city" is the city or town (e.g. "Accra").
+- property_type is one of: residential, commercial, industrial, land, mixed-use, hospitality, other.
+- Add up to 6 short lowercase tags useful for search (e.g. "gated community", "mortgage valuation").
+"""
+
+COMMENTARY_SYSTEM = """You are a senior chartered surveyor at Pinnacle Estate Surveyors drafting market commentary \
+for inclusion in a client report. Write in British English, in the measured, professional register of a valuation \
+report. Base every statement strictly on the statistics provided; do not introduce outside figures. Where the \
+evidence is thin (few records), say so plainly. Do not use bullet points or headings; write 2-4 paragraphs of prose. \
+The surveyor will review and edit your draft before use."""
+
+
+@lru_cache(maxsize=1)
+def _client() -> anthropic.Anthropic:
+    return anthropic.Anthropic(max_retries=3, timeout=300)
+
+
+class AIError(RuntimeError):
+    pass
+
+
+def _call(system: str, content: list, *, max_tokens: int, output_config: dict) -> str:
+    try:
+        response = _client().beta.messages.create(
+            model=settings.claude_model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": content}],
+            output_config=output_config,
+            betas=[FALLBACK_BETA],
+            fallbacks="default",
+        )
+    except anthropic.AuthenticationError as exc:
+        raise AIError("Claude API credentials are invalid") from exc
+    except anthropic.RateLimitError as exc:
+        raise AIError("Claude API rate limit reached; try again shortly") from exc
+    except anthropic.APIStatusError as exc:
+        raise AIError(f"Claude API error ({exc.status_code}): {exc.message}") from exc
+    except anthropic.APIConnectionError as exc:
+        raise AIError("Could not reach the Claude API") from exc
+
+    if response.stop_reason == "refusal":
+        raise AIError("Claude declined to process this document")
+    if response.stop_reason == "max_tokens":
+        raise AIError("Claude's response was cut off (document too large); try splitting it")
+    text = "".join(b.text for b in response.content if b.type == "text")
+    if not text:
+        raise AIError("Claude returned an empty response")
+    return text
+
+
+def extract_report(path: Path, file_type: str, text: str, default_currency: str) -> dict:
+    """Extract structured data from a report using Claude. Returns the draft dict."""
+    content: list = []
+    size = path.stat().st_size if path.exists() else 0
+    if file_type == "pdf" and size and size <= MAX_INLINE_BYTES:
+        content.append({
+            "type": "document",
+            "source": {"type": "base64", "media_type": "application/pdf",
+                       "data": base64.standard_b64encode(path.read_bytes()).decode("ascii")},
+        })
+    elif file_type == "image" and size and size <= 5 * 1024 * 1024 and path.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+        media = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}[path.suffix.lower()]
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": media,
+                       "data": base64.standard_b64encode(path.read_bytes()).decode("ascii")},
+        })
+    else:
+        if not text.strip():
+            raise AIError("No readable text found in the document")
+        if len(text) > MAX_TEXT_CHARS:
+            raise AIError("Document text is too long for a single extraction; split it into smaller files")
+        content.append({"type": "text", "text": f"<report filename=\"{path.name}\">\n{text}\n</report>"})
+    content.append({"type": "text", "text": "Extract the structured data from this report."})
+
+    raw = _call(
+        EXTRACTION_SYSTEM.replace("{currency}", default_currency),
+        content,
+        max_tokens=16000,
+        output_config={"effort": "medium", "format": {"type": "json_schema", "schema": EXTRACTION_SCHEMA}},
+    )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AIError("Claude returned malformed JSON") from exc
+    for rec in data.get("records", []):
+        if isinstance(rec.get("cost_breakdown"), dict):
+            rec["cost_breakdown"] = {k: v for k, v in rec["cost_breakdown"].items() if v is not None} or None
+        for key in [k for k, v in rec.items() if v is None]:
+            del rec[key]
+    return data
+
+
+def market_commentary(stats: dict, scope: str, tone: str) -> str:
+    length = "two short paragraphs" if tone == "concise" else "three to four paragraphs"
+    prompt = (
+        f"Scope of the analysis: {scope}\n\n"
+        f"Statistics from the firm's database (JSON):\n{json.dumps(stats, indent=2, default=str)}\n\n"
+        f"Draft market commentary of {length} covering values/rents/yields, construction costs and housing "
+        "conditions as far as the data supports, with trends over time where available."
+    )
+    return _call(
+        COMMENTARY_SYSTEM,
+        [{"type": "text", "text": prompt}],
+        max_tokens=8000,
+        output_config={"effort": "medium"},
+    ).strip()
