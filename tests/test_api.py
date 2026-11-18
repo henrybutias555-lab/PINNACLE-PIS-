@@ -861,3 +861,75 @@ def test_all_261_mmdas_available_to_the_page(client, admin):
     assert ["Adentan Municipal", "Greater Accra", "Adenta"] in data
     api = client.get("/api/mmdas", headers=admin).json()
     assert len(api) == 261 and {"name", "region", "capital"} <= set(api[0])
+
+
+def _comparables_docx() -> bytes:
+    import io as _io
+
+    import docx
+
+    d = docx.Document()
+    for line in ("VALUATION REPORT", "Location: East Legon, Accra", "Purpose of valuation: Mortgage",
+                 "Basis of value: Market Value VALUATION OPINION", "COMPARABLE EVIDENCE"):
+        d.add_paragraph(line)
+    rows = [["No.", "Location", "Property Type", "Date of Sale", "Price (GH¢)", "Remarks"],
+            ["1", "Plot 5, East Legon Hills", "4-bedroom house", "March 2023", "2,100,000.00", "Similar size"],
+            ["2", "Santeo Estate", "5-bedroom house", "June 2023", "2,450,000.00", "Superior finishes"],
+            ["3", "Oyarifa", "4-bedroom house", "Jan 2023", "1,850,000", "Older building"]]
+    t = d.add_table(rows=len(rows), cols=len(rows[0]))
+    for r, vals in zip(t.rows, rows):
+        for c, v in zip(r.cells, vals):
+            c.text = v
+    d.add_paragraph("Market Value: GH¢2,300,000.00")
+    buf = _io.BytesIO(); d.save(buf)
+    return buf.getvalue()
+
+
+def test_comparables_from_word_table_and_excel(client, admin):
+    import io as _io
+
+    import openpyxl
+
+    rep = client.post("/api/reports/upload?sync=true", headers=admin,
+                      files=[("files", ("comps.docx", _comparables_docx(), "application/octet-stream"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert rec["basis_of_value"] == "Market Value"          # not "Market Value VALUATION OPINION"
+    assert rec["purpose"] == "Mortgage" and rec["capital_value"] == 2300000
+    comps = rec["comparables"]
+    assert [c["address"] for c in comps] == ["Plot 5, East Legon Hills", "Santeo Estate", "Oyarifa"]
+    assert comps[0] == {"address": "Plot 5, East Legon Hills", "property_type": "4-bedroom house",
+                        "date": "March 2023", "price": 2100000, "notes": "Similar size"}
+    # user edits: drops one comparable, adds one
+    rec["comparables"] = comps[:2] + [{"address": "Trasacco Valley", "price": 3100000, "size_sqm": 400}]
+    client.post(f"/api/reports/{rep['id']}/confirm", headers=admin, json={"records": [rec]})
+    saved = client.get(f"/api/records?report_id={rep['id']}", headers=admin).json()["items"][0]
+    assert len(saved["comparables"]) == 3 and saved["comparables"][2]["price_per_sqm"] == 7750
+
+    wb = openpyxl.load_workbook(_io.BytesIO(client.get(
+        f"/api/exports/evidence?category=valuation&ids={saved['id']}&format=xlsx", headers=admin).content))
+    assert "Comparables" in wb.sheetnames
+    ev = list(wb["Evidence"].iter_rows(min_row=4, values_only=True))
+    assert "Purpose of valuation" in ev[0] and "Basis of value" in ev[0]
+    row = dict(zip(ev[0], ev[1]))
+    assert (row["Purpose of valuation"], row["Basis of value"]) == ("Mortgage", "Market Value")
+    cs = list(wb["Comparables"].iter_rows(min_row=4, values_only=True))
+    head, body = cs[0], [dict(zip(cs[0], r)) for r in cs[1:]]
+    assert len(body) == 3
+    assert body[0]["Purpose of valuation"] == "Mortgage" and body[0]["Basis of value"] == "Market Value"
+    assert body[0]["Comparable address / location"] == "Plot 5, East Legon Hills" and body[0]["Price"] == 2100000
+
+
+def test_basis_of_value_always_single(client, admin):
+    from app.main import _fix_basis_values
+    from app.services.rules import normalise_basis
+
+    assert normalise_basis("Market Value VALUATION OPINION") == "Market Value"
+    assert normalise_basis("Market Value and Forced Sale Value") == "Market Value"
+    assert normalise_basis("Open Market Value") == "Market Value"
+    assert normalise_basis("Forced Sale Value") == "Forced Sale Value"
+    rid = client.post("/api/records", headers=admin, json={"category": "valuation",
+                                                        "basis_of_value": "Market Value VALUATION OPINION"}).json()["id"]
+    assert client.get(f"/api/records/{rid}", headers=admin).json()["basis_of_value"] == "Market Value"
+    r = client.patch(f"/api/records/{rid}", headers=admin, json={"basis_of_value": "market rent (valuation opinion)"})
+    assert r.json()["basis_of_value"] == "Market Rent"
+    assert _fix_basis_values() == 0  # nothing messy left

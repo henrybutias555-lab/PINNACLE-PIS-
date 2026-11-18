@@ -15,7 +15,7 @@ COLUMNS = {
     "valuation": [
         ("Date", "record_date"), ("GPS address", "gps_address"), ("Address", "address"), ("Location", "location"),
         ("District (MMDA)", "district"), ("Type", "property_type"), ("Size (m²)", "size_sqm"),
-        ("Basis of value", "basis_of_value"), ("Tenure", "tenure"), ("Capital value", "capital_value"),
+        ("Purpose of valuation", "purpose"), ("Basis of value", "basis_of_value"), ("Tenure", "tenure"), ("Capital value", "capital_value"),
         ("Value/m²", "value_per_sqm"), ("Forced sale value", "forced_sale_value"), ("Annual rent", "annual_rent"),
         ("Yield %", "yield_pct"),
         ("Method", "method"), ("Currency", "currency"),
@@ -251,6 +251,7 @@ def evidence_xlsx(records: list[Record], category: str, scope: str) -> bytes:
                      else "#,##0.00" if f in ("size_sqm",) else "0.00" if f in ("yield_pct", "affordability_ratio")
                      else None for _, f in cols]
     book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in records], fmts)
+    comparables_sheet(book, records)
     _records_sheet(book, records, "All fields")
     return book.bytes()
 
@@ -343,6 +344,7 @@ def analysis_xlsx(*, scope: str, summary: dict, breakdown_rows: list[dict], grou
         chart.set_categories(Reference(ws, min_col=1, min_row=start + 1, max_row=start + len(cross_rows)))
         ws.add_chart(chart, f"G{start}")
 
+    comparables_sheet(book, records)
     _records_sheet(book, records)
     return book.bytes()
 
@@ -375,4 +377,39 @@ def records_xlsx(records: list[Record], scope: str) -> bytes:
                          else "#,##0.00" if f == "size_sqm" else "0.00" if f in ("yield_pct", "affordability_ratio")
                          else None for _, f in cols]
         book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in subset], fmts)
+    comparables_sheet(book, records)
     return book.bytes()
+
+
+COMPARABLE_COLUMNS = [
+    ("Ref", None, None), ("Comparable no.", None, "0"), ("Subject location", "location", None),
+    ("Subject MMDA", "district", None), ("Purpose of valuation", "purpose", None),
+    ("Basis of value", "basis_of_value", None), ("Date of valuation", "record_date", "yyyy-mm-dd"),
+    ("Comparable address / location", "c:address", None), ("Comparable type", "c:property_type", None),
+    ("Comparable date", "c:date", None), ("Price", "c:price", "#,##0"), ("Rent", "c:rent", "#,##0"),
+    ("Size (m²)", "c:size_sqm", "#,##0.00"), ("Price per m²", "c:price_per_sqm", "#,##0"), ("Remarks", "c:notes", None),
+    ("Currency", "currency", None),
+]
+
+
+def comparables_sheet(book, records: list[Record]) -> None:
+    """Every comparable listed inside the valuation reports, with the subject's purpose and basis."""
+    rows = []
+    for r in records:
+        for i, c in enumerate(r.comparables or [], start=1):
+            row = []
+            for label, field, _ in COMPARABLE_COLUMNS:
+                if label == "Ref":
+                    row.append(r.id)
+                elif label == "Comparable no.":
+                    row.append(i)
+                elif field.startswith("c:"):
+                    row.append((c or {}).get(field[2:]))
+                else:
+                    row.append(getattr(r, field))
+            rows.append(row)
+    if not rows:
+        return
+    ws = book.sheet("Comparables", "Comparables from valuation reports",
+                    "Each comparable with the purpose and basis of the valuation it supports")
+    book.table(ws, [c[0] for c in COMPARABLE_COLUMNS], rows, [c[2] for c in COMPARABLE_COLUMNS])

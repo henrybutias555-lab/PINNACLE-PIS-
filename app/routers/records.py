@@ -36,6 +36,17 @@ def _derive(rec: Record) -> None:
         rec.yield_pct = round(rec.annual_rent / rec.capital_value * 100, 2)
     if rec.currency:
         rec.currency = rec.currency.upper()
+    if rec.basis_of_value:
+        from ..services.rules import normalise_basis
+        rec.basis_of_value = normalise_basis(rec.basis_of_value)
+    if rec.comparables:
+        comps = []
+        for c in rec.comparables:
+            c = dict(c or {})
+            if c.get("price") and c.get("size_sqm") and not c.get("price_per_sqm"):
+                c["price_per_sqm"] = round(float(c["price"]) / float(c["size_sqm"]), 2)
+            comps.append(c)
+        rec.comparables = comps
     if rec.tags:
         rec.tags = sorted({t.strip().lower() for t in rec.tags if t and t.strip()})
     if rec.property_type:
@@ -69,6 +80,9 @@ def apply_changes(rec: Record, body: dict) -> None:
         rec.cost_per_sqm = None
     if {"capital_value", "annual_rent"} & set(body) and "yield_pct" not in body:
         rec.yield_pct = None
+    if "basis_of_value" in body and rec.basis_of_value:
+        from ..services.rules import normalise_basis
+        rec.basis_of_value = normalise_basis(rec.basis_of_value)
     _derive(rec)
 
 

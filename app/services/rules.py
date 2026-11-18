@@ -156,6 +156,98 @@ def find_gps(text: str) -> str | None:
     return None
 
 
+_COMP_COLUMNS = [  # (field, header words) - first match wins
+    ("price_per_sqm", ["per m", "per sq", "/m", "rate", "price/m", "unit price"]),
+    ("date", ["date", "year", "period", "when"]),
+    ("rent", ["rent", "rental"]),
+    ("price", ["price", "value", "amount", "consideration", "sale", "asking", "sold"]),
+    ("size_sqm", ["size", "area", "sqm", "m²", "m2", "gfa", "plot"]),
+    ("property_type", ["type", "description", "property", "accommodation"]),
+    ("address", ["location", "address", "comparable", "property", "site", "area"]),
+    ("notes", ["remark", "note", "comment", "adjust", "condition", "source"]),
+]
+
+
+def _cells(line: str) -> list[str]:
+    sep = "|" if "|" in line else "\t"
+    return [c.strip() for c in line.split(sep)]
+
+
+def find_comparables(text: str, limit: int = 30) -> list[dict]:
+    """Rows of a comparables table, e.g. 'No. | Location | Type | Date | Price (GH¢) | Remarks'."""
+    lines = text.splitlines()
+    out = []
+    i = 0
+    while i < len(lines):
+        head = _cells(lines[i])
+        low = [h.lower() for h in head]
+        has_place = any(any(w in h for w in ("location", "address", "comparable", "property", "description")) for h in low)
+        has_money = any(any(w in h for w in ("price", "value", "rent", "amount", "consideration", "sale")) for h in low)
+        if len(head) >= 3 and has_place and has_money and ("|" in lines[i] or "\t" in lines[i]):
+            used, mapping = set(), {}
+            for idx, h in enumerate(low):
+                if re.fullmatch(r"(no\.?|#|s/?n|item)", h):
+                    continue
+                for field, words in _COMP_COLUMNS:
+                    if field in used and field not in ("notes",):
+                        continue
+                    if any(w in h for w in words):
+                        mapping[idx] = field
+                        used.add(field)
+                        break
+            if "price" not in used and "rent" not in used:
+                i += 1
+                continue
+            j = i + 1
+            while j < len(lines) and ("|" in lines[j] or "\t" in lines[j]):
+                cells = _cells(lines[j])
+                row = {}
+                for idx, field in mapping.items():
+                    if idx >= len(cells) or not cells[idx]:
+                        continue
+                    raw = cells[idx]
+                    if field in ("price", "rent", "price_per_sqm"):
+                        value, _ = _money_in(raw, minimum=1)
+                        if value is not None:
+                            row[field] = value
+                    elif field == "size_sqm":
+                        m = re.search(r"([\d,]+(?:\.\d+)?)\s*(acres?|ha|hectares?|sq\.?\s?ft|ft²)?", raw, re.I)
+                        if m and _num(m.group(1)):
+                            v, unit = _num(m.group(1)), (m.group(2) or "").lower()
+                            v = v * 4046.86 if unit.startswith("acre") else v * 10000 if unit in ("ha", "hectare", "hectares") \
+                                else v * 0.092903 if "ft" in unit else v
+                            row["size_sqm"] = round(v, 2)
+                    elif field == "notes" and row.get("notes"):
+                        row["notes"] += f"; {raw}"
+                    else:
+                        row[field] = raw[:300]
+                if row.get("address") or row.get("price") or row.get("rent"):
+                    if row.get("price") and row.get("size_sqm") and not row.get("price_per_sqm"):
+                        row["price_per_sqm"] = round(row["price"] / row["size_sqm"], 2)
+                    out.append(row)
+                j += 1
+            i = j
+            if len(out) >= limit:
+                break
+        else:
+            i += 1
+    return out[:limit]
+
+
+def normalise_basis(value: str | None) -> str | None:
+    """One standard basis of value: 'Market Value VALUATION OPINION' -> 'Market Value'."""
+    if not value or not str(value).strip():
+        return None
+    low = str(value).lower()
+    hits = sorted((low.find(b.lower()), b) for b in BASES_OF_VALUE if b.lower() in low)
+    primary = [b for _, b in hits if b != "Forced Sale Value"]
+    if primary:
+        return primary[0]
+    if hits:
+        return hits[0][1]
+    return str(value).strip()[:160]
+
+
 def find_basis_of_value(text: str) -> str | None:
     """The basis of value, as ONE basis (e.g. "Market Value"). A forced sale value is a
     separate figure, so "Market Value and Forced Sale Value" gives "Market Value"."""
@@ -365,6 +457,7 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
         record["property_valued"] = _labelled(text, ["property valued", "subject property", "property description",
                                                      "description of property", "description of the property"])
         record["basis_of_value"] = find_basis_of_value(text)
+        record["comparables"] = find_comparables(text) or None
         record["valuer"] = _labelled(text, ["valuer", "valued by", "prepared by", "signed by", "reporting valuer"])
         record["forced_sale_value"], _ = _labelled_amount(text, ["forced sale value", "fsv"])
         if record.get("forced_sale_value") and record.get("capital_value") == record["forced_sale_value"]:
