@@ -165,6 +165,12 @@ class CommentaryIn(BaseModel):
     tone: Literal["formal", "concise"] = "formal"
 
 
+class AnalysisExportIn(CommentaryIn):
+    group_by: str | None = "location,property_type"
+    interval: Literal["month", "quarter", "year"] = "quarter"
+    commentary: str | None = None
+
+
 class ActivityOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

@@ -109,3 +109,200 @@ def commentary_docx(text: str, scope: str) -> bytes:
     buf = io.BytesIO()
     document.save(buf)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------- Excel (.xlsx)
+
+XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+RECORD_COLUMNS = [
+    ("Ref", "id", None), ("Category", "category", None), ("Date", "record_date", "yyyy-mm-dd"),
+    ("Title / project", "title", None), ("Address", "address", None), ("Location", "location", None),
+    ("City", "city", None), ("Region", "region", None), ("Property type", "property_type", None),
+    ("Purpose", "purpose", None), ("Client", "client", None), ("Currency", "currency", None),
+    ("Size / GFA (m²)", "size_sqm", "#,##0.00"), ("Basis", "valuation_basis", None), ("Method", "method", None),
+    ("Capital value", "capital_value", "#,##0"), ("Value per m²", "value_per_sqm", "#,##0"),
+    ("Annual rent", "annual_rent", "#,##0"), ("Rent per m² p.a.", "rent_per_sqm", "#,##0.00"),
+    ("Yield %", "yield_pct", "0.00"), ("Total construction cost", "total_cost", "#,##0"),
+    ("Cost per m²", "cost_per_sqm", "#,##0"), ("Specification", "specification", None),
+    ("Avg house price", "avg_price", "#,##0"), ("Avg monthly rent", "avg_monthly_rent", "#,##0"),
+    ("Supply (units)", "supply_units", "#,##0"), ("Demand", "demand_level", None),
+    ("Affordability ratio", "affordability_ratio", "0.0"), ("Tags", "tags", None), ("Notes", "notes", None),
+]
+
+_MONEY_KEYS = {"capital_value", "value_per_sqm", "annual_rent", "rent_per_sqm", "cost_per_sqm", "total_cost",
+               "avg_price", "avg_monthly_rent"}
+
+
+def _xl_value(value):
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    if isinstance(value, dict):
+        return ", ".join(f"{k}: {v}" for k, v in value.items())
+    return value
+
+
+class _Book:
+    """Small helper around openpyxl for consistently styled sheets."""
+
+    def __init__(self):
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        self.wb = Workbook()
+        self.wb.remove(self.wb.active)
+        self.head_font = Font(bold=True, color="FFFFFF")
+        self.head_fill = PatternFill("solid", fgColor="0F4C5C")
+        self.title_font = Font(bold=True, size=14, color="0F4C5C")
+        self.wrap = Alignment(wrap_text=True, vertical="top")
+
+    def sheet(self, name: str, title: str | None = None, subtitle: str | None = None):
+        ws = self.wb.create_sheet(name[:31])
+        if title:
+            ws.append([title])
+            ws["A1"].font = self.title_font
+            if subtitle:
+                ws.append([subtitle])
+            ws.append([])
+        return ws
+
+    def table(self, ws, headers: list[str], rows: list[list], formats: list[str | None] | None = None,
+              widths: list[int] | None = None):
+        from openpyxl.utils import get_column_letter
+
+        ws.append(headers)
+        start = ws.max_row
+        for c in range(1, len(headers) + 1):
+            cell = ws.cell(row=start, column=c)
+            cell.font, cell.fill, cell.alignment = self.head_font, self.head_fill, self.wrap
+        for row in rows:
+            ws.append([_xl_value(v) for v in row])
+        if formats:
+            for c, fmt in enumerate(formats, start=1):
+                if fmt:
+                    for r in range(start + 1, start + 1 + len(rows)):
+                        ws.cell(row=r, column=c).number_format = fmt
+        for c, h in enumerate(headers, start=1):
+            longest = max([len(str(h))] + [len(str(_xl_value(r[c - 1]) or "")) for r in rows[:200]])
+            ws.column_dimensions[get_column_letter(c)].width = (widths[c - 1] if widths else min(max(10, longest + 2), 45))
+        if rows:
+            ws.auto_filter.ref = f"A{start}:{get_column_letter(len(headers))}{start + len(rows)}"
+        ws.freeze_panes = ws.cell(row=start + 1, column=1)
+        return start
+
+    def bytes(self) -> bytes:
+        buf = io.BytesIO()
+        self.wb.save(buf)
+        return buf.getvalue()
+
+
+def _records_sheet(book: _Book, records: list[Record], name: str = "Records"):
+    ws = book.sheet(name)
+    book.table(ws, [c[0] for c in RECORD_COLUMNS],
+               [[getattr(r, f) for _, f, _ in RECORD_COLUMNS] for r in records],
+               [fmt for _, _, fmt in RECORD_COLUMNS])
+
+
+def evidence_xlsx(records: list[Record], category: str, scope: str) -> bytes:
+    book = _Book()
+    cols = COLUMNS[category]
+    ws = book.sheet("Evidence", TITLES[category],
+                    f"Pinnacle Estate Surveyors · {scope} · prepared {date.today().isoformat()}")
+    fmts = [None] + ["yyyy-mm-dd" if f == "record_date" else "#,##0" if f in _MONEY_KEYS or f in ("total_cost",)
+                     else "#,##0.00" if f in ("size_sqm",) else "0.00" if f in ("yield_pct", "affordability_ratio")
+                     else None for _, f in cols]
+    book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in records], fmts)
+    _records_sheet(book, records, "All fields")
+    return book.bytes()
+
+
+def analysis_xlsx(*, scope: str, summary: dict, breakdown_rows: list[dict], group_by: list[str],
+                  trends: dict[str, dict], cross_rows: list[dict], records: list[Record],
+                  commentary: str | None = None) -> bytes:
+    """Full market & cost analysis workbook with native Excel charts."""
+    from openpyxl.chart import BarChart, LineChart, Reference
+
+    book = _Book()
+    cur = summary.get("currency") or ""
+    stamp = f"Pinnacle Estate Surveyors · prepared {date.today().isoformat()} from the Pinnacle Intelligence System"
+
+    # Summary
+    ws = book.sheet("Summary", f"Market & cost analysis: {scope}", stamp)
+    dr = summary.get("date_range")
+    info = [["Records analysed", summary["record_count"]],
+            ["Date range", f"{dr[0]} to {dr[1]}" if dr else "n/a"],
+            ["Currency of figures", cur or "n/a"]]
+    for cat, n in summary.get("by_category", {}).items():
+        info.append([f"{cat.title()} records", n])
+    excluded = summary.get("other_currencies_excluded") or {}
+    if excluded:
+        info.append(["Excluded (other currency)", ", ".join(f"{n} {c}" for c, n in excluded.items())])
+    for row in info:
+        ws.append(row)
+    ws.append([])
+    metric_rows = [[m["label"], m["count"], m["mean"], m["median"], m["min"], m["max"]]
+                   for m in summary.get("metrics", {}).values()]
+    book.table(ws, ["Metric", "Records", "Average", "Median", "Minimum", "Maximum"], metric_rows,
+               [None, "0", "#,##0.00", "#,##0.00", "#,##0.00", "#,##0.00"], [34, 10, 16, 16, 16, 16])
+    if commentary:
+        ws.append([])
+        ws.append(["Market commentary (draft)"])
+        ws.cell(row=ws.max_row, column=1).font = book.title_font
+        for para in commentary.split("\n\n"):
+            ws.append([para.strip()])
+            cell = ws.cell(row=ws.max_row, column=1)
+            cell.alignment = book.wrap
+            ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=6)
+            ws.row_dimensions[ws.max_row].height = max(30, 15 * (len(para) // 110 + 1))
+
+    # By area & type
+    ws = book.sheet("By area & type", "Averages by " + " and ".join(g.replace("_", " ") for g in group_by),
+                    f"Figures in {cur}" if cur else None)
+    cols = [("value_per_sqm", "Value per m²"), ("capital_value", "Capital value"), ("annual_rent", "Annual rent"),
+            ("yield_pct", "Yield %"), ("cost_per_sqm", "Cost per m²"), ("avg_price", "Avg house price"),
+            ("avg_monthly_rent", "Avg monthly rent")]
+    book.table(ws, [g.replace("_", " ").title() for g in group_by] + ["Records"] + [l for _, l in cols],
+               [[r.get(g) for g in group_by] + [r["count"]] + [r.get(k) for k, _ in cols] for r in breakdown_rows],
+               [None] * len(group_by) + ["0"] + ["0.00" if k == "yield_pct" else "#,##0" for k, _ in cols])
+
+    # Trends: one block per metric, each with a line chart
+    ws = book.sheet("Trends", "Trends over time (quarterly)", f"Figures in {cur}" if cur else None)
+    for key, t in trends.items():
+        series = t.get("series") or []
+        if not series:
+            continue
+        ws.append([t["label"]])
+        ws.cell(row=ws.max_row, column=1).font = book.title_font
+        start = book.table(ws, ["Period", "Average", "Median", "Records", "Change vs previous %"],
+                           [[p["period"], p["mean"], p["median"], p["count"], p["change_pct"]] for p in series],
+                           [None, "#,##0.00", "#,##0.00", "0", "0.0"], [14, 16, 16, 10, 20])
+        if len(series) >= 2:
+            chart = LineChart()
+            chart.title, chart.height, chart.width = t["label"], 7, 16
+            chart.y_axis.title = cur if key not in ("yield_pct", "affordability_ratio") else ""
+            data = Reference(ws, min_col=2, max_col=3, min_row=start, max_row=start + len(series))
+            chart.add_data(data, titles_from_data=True)
+            chart.set_categories(Reference(ws, min_col=1, min_row=start + 1, max_row=start + len(series)))
+            ws.add_chart(chart, f"G{start}")
+        ws.append([])
+        for _ in range(max(0, 15 - len(series))):  # leave room for the chart
+            ws.append([])
+    ws.freeze_panes = None
+
+    # Cost vs value
+    ws = book.sheet("Cost vs value", "Construction cost vs capital value (per m²)", f"Figures in {cur}" if cur else None)
+    start = book.table(ws, ["Period", "Capital value per m²", "Construction cost per m²", "Cost as % of value",
+                            "Margin per m²"],
+                       [[r["period"], r["value_per_sqm"], r["cost_per_sqm"], r["cost_to_value_pct"],
+                         r["development_margin_per_sqm"]] for r in cross_rows],
+                       [None, "#,##0", "#,##0", "0.0", "#,##0"], [14, 22, 24, 18, 16])
+    if len(cross_rows) >= 1:
+        chart = BarChart()
+        chart.title, chart.height, chart.width = "Value vs construction cost per m²", 8, 16
+        chart.add_data(Reference(ws, min_col=2, max_col=3, min_row=start, max_row=start + len(cross_rows)),
+                       titles_from_data=True)
+        chart.set_categories(Reference(ws, min_col=1, min_row=start + 1, max_row=start + len(cross_rows)))
+        ws.add_chart(chart, f"G{start}")
+
+    _records_sheet(book, records)
+    return book.bytes()

@@ -443,6 +443,7 @@ function evidenceExport(format) {
   download("/api/exports/evidence?" + qs({ ...f, format }), `evidence.${format}`).catch((e) => toast(e.message, true));
 }
 $("#export-csv").addEventListener("click", () => evidenceExport("csv"));
+$("#export-xlsx").addEventListener("click", () => evidenceExport("xlsx"));
 $("#export-docx").addEventListener("click", () => evidenceExport("docx"));
 
 /* ---------------- Intelligence ---------------- */
@@ -507,6 +508,14 @@ $("#gen-commentary").addEventListener("click", async (e) => {
   } catch (err) { toast(err.message, true); }
   btn.disabled = false; btn.textContent = "Generate";
 });
+$("#intel-xlsx").addEventListener("click", async (e) => {
+  const btn = e.target; btn.disabled = true; btn.textContent = "Preparing Excel…";
+  try {
+    await download("/api/exports/analysis", "pis-market-analysis.xlsx", { method: "POST", body: {
+      ...intelFilters(), group_by: $("#group-by").value, commentary: $("#commentary").value || null } });
+  } catch (err) { toast(err.message, true); }
+  btn.disabled = false; btn.textContent = "Export analysis to Excel";
+});
 const commBody = (format) => ({ commentary: $("#commentary").value, scope: $("#commentary").dataset.scope, format });
 $("#comm-docx").addEventListener("click", () => download("/api/analytics/commentary/export", "market-commentary.docx", { method: "POST", body: commBody("docx") }).catch((e) => toast(e.message, true)));
 $("#comm-txt").addEventListener("click", () => download("/api/analytics/commentary/export", "market-commentary.txt", { method: "POST", body: commBody("txt") }).catch((e) => toast(e.message, true)));
@@ -533,6 +542,7 @@ function compExport(format) {
   download("/api/exports/evidence?" + qs({ category, ids: ids.join(","), format }), `comparables.${format}`).catch((e) => toast(e.message, true));
 }
 $("#comp-csv").addEventListener("click", () => compExport("csv"));
+$("#comp-xlsx").addEventListener("click", () => compExport("xlsx"));
 $("#comp-docx").addEventListener("click", () => compExport("docx"));
 
 /* ---------------- Admin ---------------- */

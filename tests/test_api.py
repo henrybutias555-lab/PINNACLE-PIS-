@@ -411,3 +411,45 @@ def test_gemini_schema_has_no_nullable_types():
             for v in node:
                 walk(v)
     walk(GEMINI_SCHEMA)
+
+
+def test_analysis_excel_export(client, admin):
+    """The analysis downloads as a real Excel workbook with numbers, tables and charts."""
+    import io as _io
+
+    import openpyxl
+
+    r = client.post("/api/exports/analysis", headers=admin,
+                    json={"location": "Cantonments", "group_by": "property_type", "commentary": "Draft text.\n\nSecond."})
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml")
+    wb = openpyxl.load_workbook(_io.BytesIO(r.content))
+    assert wb.sheetnames == ["Summary", "By area & type", "Trends", "Cost vs value", "Records"]
+    summary = [row for row in wb["Summary"].iter_rows(values_only=True)]
+    assert ("Records analysed", 6) in [tuple(x[:2]) for x in summary]
+    cps = next(x for x in summary if x[0] == "Construction cost per m²")
+    assert cps[2] == 6500 and isinstance(cps[2], (int, float))  # a number, not text
+    assert any(x[0] == "Draft text." for x in summary)
+    types_ = {row[0] for row in wb["By area & type"].iter_rows(min_row=4, values_only=True) if row[0]}
+    assert {"residential", "commercial"} <= types_
+    assert len(wb["Trends"]._charts) >= 1 and len(wb["Cost vs value"]._charts) == 1
+    assert wb["Records"].max_row == 7  # header + 6 records
+    assert wb["Records"].auto_filter.ref  # filter arrows on
+
+    assert client.post("/api/exports/analysis", headers=admin, json={"group_by": "bogus"}).status_code == 422
+
+
+def test_evidence_excel_export(client, admin):
+    import io as _io
+
+    import openpyxl
+
+    r = client.get("/api/exports/evidence?category=valuation&location=Cantonments&format=xlsx", headers=admin)
+    assert r.status_code == 200
+    wb = openpyxl.load_workbook(_io.BytesIO(r.content))
+    assert wb.sheetnames == ["Evidence", "All fields"]
+    rows = list(wb["Evidence"].iter_rows(min_row=4, values_only=True))
+    assert rows[0][:3] == ("Ref", "Date", "Address")
+    data = rows[1:]
+    assert len(data) == 3, data
+    assert all(isinstance(x[7], (int, float)) for x in data)  # capital values are numbers, not text
