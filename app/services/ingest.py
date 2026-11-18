@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Report
-from . import llm, places, rules
+from . import gaps, llm, places, rules
 from .text_extract import extract_text
 
 log = logging.getLogger(__name__)
@@ -96,6 +96,18 @@ def _process(db: Session, report: Report, path: Path) -> Report:
                         rec[key] = value
                     elif key == "district":
                         rec.pop("district", None)
+    # Fill remaining blanks from what the report already says (MMDA from location, region from
+    # MMDA, calculations ...); each filled field is listed with its reason for the reviewer.
+    for rec in draft.get("records", []):
+        try:
+            filled = gaps.infer(rec, report.raw_text or "")
+        except Exception:
+            log.exception("gap filling failed for report %s", report.id)
+            filled = {}
+        for field, (value, reason) in filled.items():
+            rec[field] = value
+        if filled:
+            rec["autofilled"] = {field: reason for field, (_, reason) in filled.items()}
     report.draft = draft
     report.report_type = draft.get("report_type")
     report.title = (draft.get("title") or report.filename)[:500]

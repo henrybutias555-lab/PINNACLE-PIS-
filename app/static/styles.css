@@ -211,3 +211,12 @@ fieldset legend { font-weight: 600; color: var(--text); }
 .comp-table input { min-width: 7rem; }
 .comp-table td:first-child input { min-width: 13rem; }
 .comp-table td:last-child { padding: .2rem; }
+
+/* Gaps */
+.gap-badge { display: inline-grid; place-items: center; min-width: 1.15rem; height: 1.15rem; margin-left: .35rem; padding: 0 .3rem;
+  border-radius: 999px; background: var(--accent); color: var(--muted); font-size: .7rem; font-weight: 600; }
+.tab-btn.active .gap-badge { background: var(--brand-2); color: #1c2430; }
+.show-gaps label.gap input, .show-gaps label.gap select, .show-gaps label.gap textarea { border: 1px dashed var(--brand-2); }
+.show-gaps label.gap { color: var(--warn); }
+label.autofilled input, label.autofilled select, label.autofilled textarea { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.auto-hint { display: block; font-size: .72rem; color: var(--brand); font-style: italic; overflow-wrap: anywhere; }
