@@ -322,25 +322,43 @@ async function openReview(id) {
   const panel = $("#review-panel");
   panel.classList.remove("hidden");
   const draft = r.draft || { records: [] };
-  let records = (draft.records || []).map((x) => ({ ...x }));
-  const editable = r.status !== "confirmed" && can("junior");
+  const approved = r.status === "confirmed";
+  const pendingUpdate = approved && !!draft.reextracted;   // new extraction waiting to be applied
+  // Saved records of an approved report, for display and for "Saved: ..." comparison.
+  const saved = approved ? (await api(`/api/records?${qs({ report_id: id, page_size: 200, sort: "created", order: "asc" })}`)).items : [];
+  let records = (pendingUpdate || !approved ? draft.records || [] : saved).map((x) => ({ ...x }));
+  const canEdit = can("junior");
+  const editable = canEdit && (!approved || pendingUpdate);
 
   const render = () => {
+    const actions = [];
+    actions.push('<button class="btn" id="dl-file">Open original</button>');
+    if (canEdit) actions.push('<button class="btn" id="reprocess">Re-run extraction</button>');
+    if (canEdit && !approved) actions.push('<button class="btn danger" id="reject">Reject</button>');
+    if (can("senior")) actions.push('<button class="btn danger" id="del-report">Delete</button>');
+    actions.push('<button class="btn" id="close-review">Close</button>');
+    const banner = pendingUpdate
+      ? `<div class="notice">New extraction (${esc(r.extraction_method || "")}) from ${esc(new Date(draft.reextracted_at).toLocaleString())}.
+         Fields marked <span class="changed-chip">changed</span> differ from the saved record; the saved value is shown under each one.
+         Nothing changes until you tap <b>Update saved records</b>.</div>`
+      : approved ? `<p class="muted small">Approved ${r.confirmed_at ? esc(new Date(r.confirmed_at).toLocaleString()) : ""}. Showing the saved record${saved.length === 1 ? "" : "s"}.
+         Tap <b>Re-run extraction</b> to read the report again (e.g. with Gemini) and update it.</p>` : "";
     panel.innerHTML = `
-      <div class="row between"><h3>Review: ${esc(r.filename)}</h3><div class="row gap">
-        <button class="btn" id="dl-file">Open original</button>
-        ${editable ? '<button class="btn" id="reprocess">Re-run extraction</button><button class="btn danger" id="reject">Reject</button>' : ""}
-        ${can("senior") ? '<button class="btn danger" id="del-report">Delete</button>' : ""}
-        <button class="btn" id="close-review">Close</button></div></div>
-      <p class="muted small">Status: ${statusPill(r.status)} · Extraction: ${esc(r.extraction_method || "—")} ${r.status === "confirmed" ? "· Saved records are edited under Data &amp; Search." : ""}</p>
+      <div class="row between"><h3>Review: ${esc(r.filename)}</h3><div class="row gap">${actions.join("")}</div></div>
+      <p class="muted small">Status: ${statusPill(r.status)} · Extraction: ${esc(r.extraction_method || "—")}</p>
+      ${banner}
       ${draft.summary ? `<p>${esc(draft.summary)}</p>` : ""}
       ${draft.warning ? `<div class="notice">${esc(draft.warning)}</div>` : ""}
       ${r.error ? `<div class="notice">${esc(r.error)}</div>` : ""}
       <form id="review-form">${records.map(recordEditorHTML).join("")}</form>
-      ${editable ? `<div class="row gap"><button class="btn" id="add-rec">+ Add record</button><button class="btn primary" id="confirm">Confirm &amp; save to database</button></div>` : ""}`;
+      ${editable ? `<div class="row gap"><button class="btn" id="add-rec">+ Add record</button>
+        ${pendingUpdate
+          ? '<button class="btn" id="discard">Keep saved version</button><button class="btn primary" id="apply-update">Update saved records</button>'
+          : '<button class="btn primary" id="confirm">Confirm &amp; save to database</button>'}</div>` : ""}`;
     $("#close-review").onclick = () => panel.classList.add("hidden");
     $("#dl-file").onclick = () => download(`/api/reports/${id}/file`, r.filename).catch((e) => toast(e.message, true));
     if (!editable) $$("input, select, textarea, .rm-record", $("#review-form")).forEach((x) => (x.disabled = true));
+    if (pendingUpdate) markChanges(panel, saved);
     $$(".review-record", panel).forEach((el) => {
       const i = Number(el.dataset.idx);
       $("select[name=category]", el).addEventListener("change", () => { records = collect(); records[i].category = $("select[name=category]", el).value; render(); });
@@ -351,9 +369,17 @@ async function openReview(id) {
       if (!confirm("Delete this report and any records saved from it?")) return;
       await api(`/api/reports/${id}`, { method: "DELETE" }); panel.classList.add("hidden"); loadReports();
     };
+    const re = $("#reprocess");
+    if (re) re.onclick = async (ev) => {
+      if (approved && !confirm("Read this report again? The saved record stays unchanged until you review the new result and tap Update.")) return;
+      ev.target.disabled = true; ev.target.textContent = "Extracting…";
+      try { await api(`/api/reports/${id}/reprocess`, { method: "POST" }); openReview(id); loadReports(); }
+      catch (e) { toast(e.message, true); ev.target.disabled = false; ev.target.textContent = "Re-run extraction"; }
+    };
     if (!editable) return;
     $("#add-rec").onclick = () => { records = collect(); records.push({ category: r.report_type || "valuation" }); render(); };
-    $("#confirm").onclick = async () => {
+    const confirmBtn = $("#confirm");
+    if (confirmBtn) confirmBtn.onclick = async () => {
       try {
         const payload = collect();
         await api(`/api/reports/${id}/confirm`, { method: "POST", body: { records: payload } });
@@ -362,15 +388,58 @@ async function openReview(id) {
         loadReports(); loadFacets();
       } catch (e) { toast(e.message, true); }
     };
-    $("#reject").onclick = async () => { await api(`/api/reports/${id}/reject`, { method: "POST" }); panel.classList.add("hidden"); loadReports(); };
-    $("#reprocess").onclick = async (ev) => {
-      ev.target.disabled = true; ev.target.textContent = "Extracting…";
-      try { await api(`/api/reports/${id}/reprocess`, { method: "POST" }); openReview(id); loadReports(); } catch (e) { toast(e.message, true); ev.target.disabled = false; }
+    const rej = $("#reject");
+    if (rej) rej.onclick = async () => { await api(`/api/reports/${id}/reject`, { method: "POST" }); panel.classList.add("hidden"); loadReports(); };
+    const apply = $("#apply-update");
+    if (apply) apply.onclick = async () => {
+      if (!confirm("Replace the saved record(s) with these values?")) return;
+      try {
+        const payload = collect();
+        await api(`/api/reports/${id}/update-records`, { method: "POST", body: { records: payload } });
+        toast("Saved records updated");
+        loadReports(); loadFacets(); openReview(id);
+      } catch (e) { toast(e.message, true); }
+    };
+    const discard = $("#discard");
+    if (discard) discard.onclick = async () => {
+      try { await api(`/api/reports/${id}/discard-reextraction`, { method: "POST" }); toast("Kept the saved version"); openReview(id); }
+      catch (e) { toast(e.message, true); }
     };
   };
   const collect = () => $$(".review-record", panel).map((el) => readRecordEditor(el, records[Number(el.dataset.idx)] || {}));
   render();
   panel.scrollIntoView({ behavior: "smooth" });
+}
+
+/* Mark every field whose new value differs from the saved record, showing the saved value. */
+function markChanges(panel, saved) {
+  const norm = (v) => {
+    if (v === null || v === undefined) return "";
+    if (Array.isArray(v)) return v.map((x) => String(x).trim().toLowerCase()).filter(Boolean).sort().join(",");
+    const n = Number(v);
+    if (v !== "" && !Number.isNaN(n) && /^-?[\d.,\s]+$/.test(String(v))) return String(Math.round(n * 100) / 100);
+    return String(v).trim().toLowerCase();
+  };
+  let changed = 0;
+  $$(".review-record", panel).forEach((el) => {
+    const old = saved[Number(el.dataset.idx)];
+    if (!old) { el.insertAdjacentHTML("afterbegin", '<p class="was-hint">New record: not in the saved data</p>'); changed++; return; }
+    $$("input[name], select[name], textarea[name]", el).forEach((inp) => {
+      const name = inp.name;
+      if (name.startsWith("bd_")) return;
+      let now = inp.value;
+      if (name === "tags") now = now.split(",").map((t) => t.trim()).filter(Boolean);
+      const was = old[name];
+      if (norm(now) === norm(was)) return;
+      changed++;
+      const label = inp.closest("label");
+      if (!label) return;
+      label.classList.add("changed");
+      const shown = was === null || was === undefined || was === "" ? "(blank)" : Array.isArray(was) ? was.join(", ") : was;
+      label.insertAdjacentHTML("beforeend", `<span class="was-hint">Saved: ${esc(shown)}</span>`);
+    });
+  });
+  if (!changed) panel.querySelector(".notice")?.insertAdjacentHTML("beforeend", "<br><b>No differences from the saved record.</b>");
 }
 
 /* ---------------- Records ---------------- */

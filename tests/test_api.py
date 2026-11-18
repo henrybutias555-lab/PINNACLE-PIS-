@@ -470,3 +470,54 @@ def test_export_all_categories(client, admin):
     assert r.status_code == 200 and r.text.startswith("﻿Ref,Category")
     assert len(r.text.strip().splitlines()) == 7
     assert client.get("/api/exports/evidence?format=docx", headers=admin).status_code == 422
+
+
+def test_reextract_approved_report_and_update(client, admin, monkeypatch):
+    from app.config import Settings
+    from app.services import llm
+
+    rep = client.post("/api/reports/upload?sync=true", headers=admin,
+                      files=[("files", ("santeo.txt", GHANA_REPORT.encode(), "text/plain"))]).json()[0]
+    rec = dict(rep["draft"]["records"][0], property_type="land", city=None)  # what was approved originally
+    client.post(f"/api/reports/{rep['id']}/confirm", headers=admin, json={"records": [rec]})
+    saved = client.get(f"/api/records?report_id={rep['id']}", headers=admin).json()["items"]
+    assert len(saved) == 1 and saved[0]["property_type"] == "land"
+
+    # Re-run with "Gemini": the approved record must not change yet.
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {
+        "report_type": "valuation", "title": "Santeo", "records": [dict(
+            category="valuation", location="Santeo - East Legon Hills", city="Accra", region="Greater Accra",
+            property_type="residential", capital_value=2300000, size_sqm=206.55, tags=["mansion", "5-bedroom"],
+            comparables=[{"address": "Plot 4, East Legon Hills", "price": 2100000}])]})
+    r = client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "confirmed" and body["extraction_method"] == "ai" and body["draft"]["reextracted"]
+    assert client.get(f"/api/records/{saved[0]['id']}", headers=admin).json()["property_type"] == "land"
+
+    # Apply: the same record (same id) is updated.
+    new = body["draft"]["records"]
+    r = client.post(f"/api/reports/{rep['id']}/update-records", headers=admin, json={"records": new})
+    assert r.status_code == 200, r.text
+    assert "reextracted" not in r.json()["draft"]
+    after = client.get(f"/api/records?report_id={rep['id']}", headers=admin).json()["items"]
+    assert [a["id"] for a in after] == [saved[0]["id"]]
+    assert (after[0]["property_type"], after[0]["city"]) == ("residential", "Accra")
+    assert after[0]["comparables"][0]["price"] == 2100000
+    acts = {a["action"] for a in client.get("/api/activity", headers=admin).json()}
+    assert {"report_reextracted", "report_records_updated"} <= acts
+
+    # Re-run again, then keep the saved version: nothing changes.
+    client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin)
+    r = client.post(f"/api/reports/{rep['id']}/discard-reextraction", headers=admin)
+    assert r.status_code == 200 and "reextracted" not in r.json()["draft"]
+
+    # A failed re-run leaves the approved report as it was.
+    def boom(*a, **k):
+        raise RuntimeError("unreadable")
+    from app.services import ingest
+    monkeypatch.setattr(ingest, "extract_text", boom)
+    r = client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin)
+    assert r.status_code == 422
+    assert client.get(f"/api/reports/{rep['id']}", headers=admin).json()["status"] == "confirmed"

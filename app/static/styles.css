@@ -142,3 +142,9 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
   width: 2.3rem; height: calc(100% - 4px); border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; }
 .pw-toggle:hover { color: var(--text); }
 .pw-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+/* Re-extraction: highlight fields that differ from the saved record */
+label.changed { color: var(--warn); }
+label.changed input, label.changed select, label.changed textarea { border-color: var(--brand-2); box-shadow: 0 0 0 1px var(--brand-2); }
+.was-hint { display: block; font-size: .75rem; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
+.changed-chip { display: inline-block; padding: 0 .35rem; border-radius: 4px; border: 1px solid var(--brand-2); color: var(--warn); font-size: .8em; }
