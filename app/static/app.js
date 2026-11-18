@@ -448,8 +448,16 @@ function comparablesEditorHTML(comps) {
     <span class="muted small">Comparables found in the report are listed here; add, correct or remove them before saving.</span>`;
 }
 
+function initCompRows(el) {
+  const tbody = $(".comp-table tbody", el);
+  if (!tbody) return;
+  const count = () => { $(".comp-count", el).textContent = $$("tr", tbody).length; };
+  $$("tr", tbody).forEach((tr) => { $(".comp-del", tr).onclick = () => { tr.remove(); count(); }; });
+  count();
+}
+
 /* Tabs + attachments for an editor that is now in the page. */
-function initRecordEditor(el) {
+function initRecordEditor(el, rec = {}) {
   const show = (key) => {
     const btns = $$(".tab-btn", el);
     if (!btns.some((b) => b.dataset.tab === key)) key = btns[0].dataset.tab;
@@ -463,17 +471,19 @@ function initRecordEditor(el) {
   if (att && att.dataset.recordId) loadAttachments(att, att.dataset.recordId);
   const tbody = $(".comp-table tbody", el);
   if (tbody) {
-    const count = () => { $(".comp-count", el).textContent = $$("tr", tbody).length; };
-    const wire = (tr) => { $(".comp-del", tr).onclick = () => { tr.remove(); count(); }; };
-    $$("tr", tbody).forEach(wire);
+    initCompRows(el);
     $(".comp-add", el).onclick = () => {
       tbody.insertAdjacentHTML("beforeend", compRowHTML());
-      const tr = tbody.lastElementChild; wire(tr); count(); $("input", tr).focus();
+      initCompRows(el); $("input", tbody.lastElementChild).focus();
     };
     if (el.closest("form") && $$("input, select, textarea", el).some((x) => x.disabled)) {
       $$(".comp-add, .comp-del", el).forEach((b) => (b.disabled = true));
     }
   }
+  markAutofilled(el, rec.autofilled);
+  updateGaps(el);
+  el.addEventListener("input", () => updateGaps(el));
+  el.addEventListener("change", () => updateGaps(el));
   const mmda = $("select[name=district]", el), region = $("[name=region]", el);
   if (mmda && region) mmda.addEventListener("change", () => {
     if (!region.value.trim() && MMDA_REGION[mmda.value]) region.value = MMDA_REGION[mmda.value];
@@ -622,7 +632,12 @@ async function openReview(id) {
     $("#close-review").onclick = () => panel.classList.add("hidden");
     $("#dl-file").onclick = () => download(`/api/reports/${id}/file`, r.filename).catch((e) => toast(e.message, true));
     if (!editable) $$("input, select, textarea, .rm-record", $("#review-form")).forEach((x) => (x.disabled = true));
-    $$(".review-record", panel).forEach((el) => initRecordEditor(el));
+    $$(".review-record", panel).forEach((el) => initRecordEditor(el, records[Number(el.dataset.idx)] || {}));
+    if (editable) $$(".review-record", panel).forEach((el) => {
+      const head = $(".row.gap", el);
+      head.insertAdjacentHTML("afterbegin", '<button type="button" class="btn small fill-gaps">✨ Fill gaps</button>');
+      $(".fill-gaps", el).onclick = (ev) => fillGaps(el, records[Number(el.dataset.idx)] || {}, id, ev.target);
+    });
     if (pendingUpdate) markChanges(panel, saved);
     $$(".review-record", panel).forEach((el) => {
       const i = Number(el.dataset.idx);
@@ -754,7 +769,11 @@ function openRecord(rec) {
     <div class="row gap">${editable ? '<button class="btn primary" id="rec-save">Save</button>' : ""}${rec && rec.id && can("senior") ? '<button class="btn danger" id="rec-del">Delete</button>' : ""}</div>`);
   const el = $("#rec-form .review-record");
   $(".rm-record", el).remove();
-  initRecordEditor(el);
+  initRecordEditor(el, rec || {});
+  if (editable) {
+    $(".row.gap", el).insertAdjacentHTML("afterbegin", '<button type="button" class="btn small fill-gaps">✨ Fill gaps</button>');
+    $(".fill-gaps", el).onclick = (ev) => fillGaps(el, rec || {}, rec && rec.report_id, ev.target);
+  }
   if (!editable) $$("#rec-form input, #rec-form select, #rec-form textarea").forEach((x) => (x.disabled = true));
   // Re-render with the category's fields, keeping what has been typed so far.
   $("select[name=category]", el).addEventListener("change", () => {
@@ -786,6 +805,101 @@ function evidenceExport(format) {
 $("#export-csv").addEventListener("click", () => evidenceExport("csv"));
 $("#export-xlsx").addEventListener("click", () => evidenceExport("xlsx"));
 $("#export-docx").addEventListener("click", () => evidenceExport("docx"));
+
+/* ---------------- Gaps: count, highlight and fill empty fields ---------------- */
+const GAP_SKIP = /^(cmp_|bd_)/;
+function gapControls(scope) {
+  // Notes and tags are optional extras, not gaps.
+  return $$("input[name], select[name], textarea[name]", scope).filter((c) => !GAP_SKIP.test(c.name) && c.type !== "file"
+    && !["category", "notes", "tags"].includes(c.name));
+}
+function isEmpty(c) { return !String(c.value || "").trim(); }
+/* Tab badges with the number of empty fields; outline empties when gap mode is on. */
+function updateGaps(el) {
+  $$(".tab-panel", el).forEach((p) => {
+    if (p.dataset.tab === "attachments") return;
+    const empty = gapControls(p).filter(isEmpty);
+    const btn = $(`.tab-btn[data-tab="${p.dataset.tab}"]`, el);
+    if (!btn) return;
+    let badge = $(".gap-badge", btn);
+    if (!badge) { badge = document.createElement("span"); badge.className = "gap-badge"; btn.appendChild(badge); }
+    badge.textContent = empty.length || "";
+    badge.title = empty.length ? `${empty.length} empty field${empty.length === 1 ? "" : "s"}` : "";
+    badge.hidden = !empty.length;
+  });
+  gapControls(el).forEach((c) => c.closest("label")?.classList.toggle("gap", isEmpty(c)));
+}
+function markAutofilled(el, reasons) {
+  Object.entries(reasons || {}).forEach(([field, reason]) => {
+    const c = $(`[name="${field}"]`, el);
+    const label = c && c.closest("label");
+    if (!label) return;
+    label.classList.add("autofilled");
+    $(".auto-hint", label)?.remove();
+    label.insertAdjacentHTML("beforeend", `<span class="auto-hint">Auto-filled: ${esc(reason)} — please check</span>`);
+  });
+}
+function setFieldValue(el, field, value) {
+  if (field === "comparables") {
+    const tbody = $(".comp-table tbody", el);
+    if (!tbody || !Array.isArray(value)) return false;
+    value.forEach((c) => tbody.insertAdjacentHTML("beforeend", compRowHTML(c)));
+    initCompRows(el);
+    return true;
+  }
+  if (field === "cost_breakdown" && value && typeof value === "object") {
+    let any = false;
+    Object.entries(value).forEach(([k, v]) => { const c = $(`[name="bd_${k}"]`, el); if (c && isEmpty(c)) { c.value = v; any = true; } });
+    return any;
+  }
+  const c = $(`[name="${field}"]`, el);
+  if (!c) return false;
+  let v = Array.isArray(value) ? value.join(", ") : value ?? "";
+  if (c.tagName === "SELECT") {
+    if (field === "basis_of_value") v = basisCanonical(v);
+    if (![...c.options].some((o) => o.value === String(v))) c.insertAdjacentHTML("beforeend", `<option value="${esc(v)}">${esc(v)}</option>`);
+  }
+  c.value = v;
+  return true;
+}
+async function fillGaps(el, original, reportId, btn) {
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Filling gaps…"; }
+  try {
+    const current = readRecordEditor(el, original || {});
+    const res = await api("/api/gaps/fill", { method: "POST", body: { record: current, report_id: reportId || null } });
+    const reasons = {};
+    Object.entries(res.filled).forEach(([field, { value, reason }]) => { if (setFieldValue(el, field, value)) reasons[field] = reason; });
+    markAutofilled(el, reasons);
+    el.classList.add("show-gaps");
+    updateGaps(el);
+    const left = gapControls(el).filter(isEmpty).length;
+    const n = Object.keys(reasons).length;
+    toast(`${n ? `Filled ${n} gap${n === 1 ? "" : "s"}` : "No more gaps could be filled automatically"} · ${left} field${left === 1 ? "" : "s"} still empty (outlined) — fill them in and save${res.warning ? ". " + res.warning : ""}`);
+  } catch (e) { toast(e.message, true); }
+  if (btn) { btn.disabled = false; btn.textContent = label; }
+}
+
+/* Bulk: fill gaps across saved records (Data & Search). */
+$("#fill-gaps-bulk").addEventListener("click", async () => {
+  const f = formData($("#record-filters"));
+  let plan;
+  try { plan = await api("/api/gaps/bulk/preview?" + qs(f)); } catch (e) { toast(e.message, true); return; }
+  const fieldLabel = (k) => (GRID_COLS.find((c) => c[0] === k) || [k, k.replace(/_/g, " ")])[1];
+  const show = (v) => (Array.isArray(v) ? v.join(", ") : typeof v === "object" && v ? `${Object.keys(v).length} items` : v);
+  const list = plan.records.map((r) => `<li><b>Ref ${r.id}</b> ${esc(r.label)}<ul>${Object.entries(r.filled)
+    .map(([k, { value, reason }]) => `<li>${esc(fieldLabel(k))}: <b>${esc(show(value))}</b> <span class="muted small">(${esc(reason)})</span></li>`).join("")}</ul></li>`).join("");
+  openModal(`<h3>Fill gaps</h3>
+    <p class="muted small">Only empty fields are filled, from information each record or its report already contains. Nothing you entered is changed.</p>
+    ${plan.records.length ? `<p>${plan.fields} gap${plan.fields === 1 ? "" : "s"} can be filled in ${plan.records.length} record${plan.records.length === 1 ? "" : "s"}:</p><ul class="import-list">${list}</ul>` : "<p>No gaps can be filled automatically for these records. Use the spreadsheet view to type in what's missing.</p>"}
+    <div class="row gap">${plan.records.length && can("junior") ? '<button class="btn primary" id="gaps-apply">Fill these gaps</button>' : ""}<button class="btn" onclick="closeModal()">Close</button></div>`);
+  const go = $("#gaps-apply");
+  if (go) go.onclick = async () => {
+    go.disabled = true; go.textContent = "Filling…";
+    try { const r = await api("/api/gaps/bulk/apply?" + qs(f), { method: "POST" }); closeModal(); toast(`Filled ${r.fields} gaps in ${r.records} records`); loadRecords(); loadFacets(); }
+    catch (e) { toast(e.message, true); go.disabled = false; go.textContent = "Fill these gaps"; }
+  };
+});
 
 /* ---------------- Spreadsheet view (edit records like Excel, in the website) ---------------- */
 const GRID_COLS = [

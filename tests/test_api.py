@@ -933,3 +933,61 @@ def test_basis_of_value_always_single(client, admin):
     r = client.patch(f"/api/records/{rid}", headers=admin, json={"basis_of_value": "market rent (valuation opinion)"})
     assert r.json()["basis_of_value"] == "Market Rent"
     assert _fix_basis_values() == 0  # nothing messy left
+
+
+def test_gap_filler_infers_only_blanks():
+    from app.services import gaps
+
+    rec = {"category": "valuation", "location": "Madina", "address": "House 7, GA-415-2284, Madina Estates",
+           "building_type": "Two-storey detached house", "accommodation": "4 bedrooms",
+           "size_sqm": 200, "capital_value": 1800000, "annual_rent": 108000, "city": "Accra (my note)"}
+    filled = gaps.infer(rec, "")
+    got = {k: v for k, (v, _) in filled.items()}
+    assert got["district"] == "La Nkwantanang-Madina Municipal"
+    assert got["region"] == "Greater Accra"
+    assert "city" not in got                                    # never overwrite a value already there
+    assert got["gps_address"] == "GA-415-2284"
+    assert got["property_type"] == "residential" and "4-bedroom" in got["tags"]
+    assert got["value_per_sqm"] == 9000 and got["yield_pct"] == 6.0 and got["valuation_basis"] == "both"
+    assert got["property_valued"] == "Two-storey detached house at Madina"
+    for judgement in ("overall_marketability", "highest_best_use", "basis_of_value", "purpose", "forced_sale_value"):
+        assert judgement not in got
+    assert all(reason for _, reason in filled.values())          # every fill says why
+    # MMDA known but no location: region and city follow from the MMDA
+    got2 = {k: v for k, (v, _) in gaps.infer({"category": "valuation", "district": "Bosomtwe District"}).items()}
+    assert got2["region"] == "Ashanti" and got2["city"] == "Kuntanase"
+
+
+def test_fill_gaps_endpoint_uses_report_text(client, admin):
+    rep = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", ("gap.txt", (
+        "VALUATION REPORT\nLocation: Osu, Accra\nTenure: Leasehold\nUnexpired term: 45 years\n"
+        "Building type: Three-storey office block\n"
+        "Market value: GHS 3,000,000\nGross floor area: 300 sq m").encode(), "text/plain"))]).json()[0]
+    draft = rep["draft"]["records"][0]
+    assert draft["district"] == "Korle Klottey Municipal"
+    assert draft["property_valued"] == "Three-storey office block at Osu"   # gap filled on upload ...
+    assert draft["autofilled"]["property_valued"].startswith("summarised")  # ... and marked for checking
+    # the reviewer cleared tenure and the MMDA; Fill gaps brings them back from the report
+    current = dict(draft, tenure=None, district=None, unexpired_term=None)
+    current.pop("autofilled")
+    res = client.post("/api/gaps/fill", headers=admin, json={"record": current, "report_id": rep["id"]}).json()
+    assert res["record"]["tenure"] == "Leasehold" and res["record"]["unexpired_term"] == "45 years"
+    assert res["record"]["district"] == "Korle Klottey Municipal"
+    assert res["filled"]["tenure"]["reason"] == "from the report text"
+
+
+def test_fill_gaps_bulk(client, admin, make_user):
+    rid = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Dansoman",
+                                                        "size_sqm": 150, "capital_value": 900000}).json()["id"]
+    prev = client.get("/api/gaps/bulk/preview?q=Dansoman", headers=admin).json()
+    item = next(r for r in prev["records"] if r["id"] == rid)
+    assert item["filled"]["district"]["value"] == "Ablekuma West Municipal"
+    assert client.get(f"/api/records/{rid}", headers=admin).json()["district"] is None   # preview saves nothing
+    assert client.post("/api/gaps/bulk/apply?q=Dansoman", headers=make_user("viewer")).status_code == 403
+    res = client.post("/api/gaps/bulk/apply?q=Dansoman", headers=admin).json()
+    assert res["records"] >= 1
+    rec = client.get(f"/api/records/{rid}", headers=admin).json()
+    assert (rec["district"], rec["region"], rec["city"]) == ("Ablekuma West Municipal", "Greater Accra", "Accra")
+    assert rec["capital_value"] == 900000                     # existing values untouched
+    again = client.get("/api/gaps/bulk/preview?q=Dansoman", headers=admin).json()
+    assert not any(r["id"] == rid for r in again["records"])  # nothing left to fill
