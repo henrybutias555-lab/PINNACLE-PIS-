@@ -290,41 +290,75 @@ async function loadReports() {
 }
 
 /* Field definitions for the record editor */
-/* Record editor layout: an Address section and, for valuations, a Valuation details section. */
-const ADDRESS_FIELDS = [
-  ["gps_address", "1. GPS address", "gps"], ["location", "2. Location", "loc"], ["district", "3. MMDA", "mmda"],
-  ["region", "4. Region", "region"], ["property_type", "5. Property type", "ptype"], ["client", "6. Client"],
-  ["city", "City / town"], ["address", "Street address / landmark", "wide"],
-];
-const REPORT_FIELDS = [
-  ["title", "Title / project"], ["record_date", "Date of valuation / report", "date"], ["currency", "Currency"],
-  ["size_sqm", "Size / GFA (m²)", "num"],
-];
-const VALUATION_DETAILS = [
-  ["purpose", "1. Purpose", "purpose"], ["property_valued", "2. Property valued", "text"],
-  ["basis_of_value", "3. Basis of value", "basis"], ["assumptions", "4. Assumptions / special assumptions", "text"],
-  ["valuer", "5. Valuer identity", "wide"], ["capital_value", "6. Opinion of value (capital)", "num"],
-  ["annual_rent", "Opinion of value (annual rent)", "num"],
-];
-const VALUATION_FIGURES = [
-  ["method", "Method of valuation"], ["valuation_basis", "Capital / rental / both"], ["yield_pct", "Yield %", "num"],
-  ["value_per_sqm", "Value / m²", "num"], ["rent_per_sqm", "Rent / m² p.a.", "num"],
-];
-const CATEGORY_FIELDS = {
-  valuation: VALUATION_FIGURES,
-  cost: [["purpose", "Purpose", "purpose"], ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Cost / m²", "num"], ["specification", "Specification"]],
-  housing: [["purpose", "Purpose", "purpose"], ["avg_price", "Average price", "num"], ["avg_monthly_rent", "Average monthly rent", "num"], ["supply_units", "Supply (units)", "int"],
-    ["demand_level", "Demand level"], ["affordability_ratio", "Affordability ratio", "num"], ["stock_notes", "Housing stock notes", "text"]],
+/* Record editor: tabbed like a valuation report. */
+const RATING = ["Excellent", "Very good", "Good", "Fair", "Poor"];
+const SELECTS = {
+  rating: RATING,
+  repair: ["Excellent", "Good", "Fair", "Poor", "Dilapidated"],
+  conformity: ["Conforming", "Partly conforming", "Non-conforming"],
 };
-const COMMON_FIELDS = [...ADDRESS_FIELDS, ...REPORT_FIELDS];  // used elsewhere for "all common fields"
+const VALUATION_TABS = [
+  ["property", "1. Property", [["property_type", "Property type", "ptype"], ["property_name", "Property name / number"],
+    ["owner", "Owner"], ["use_occupancy", "Use / occupancy"], ["highest_best_use", "Highest & best use"]],
+    [["client", "Client"], ["title", "Report title / project"]]],
+  ["location", "2. Location", [["address", "Address", "wide"], ["gps_address", "Digital address", "gps"],
+    ["gps_coordinates", "GPS coordinates", "coords"], ["land_size", "Land size"], ["accessibility", "Accessibility", "text"],
+    ["location", "Neighbourhood", "loc"]],
+    [["district", "MMDA", "mmda"], ["city", "City / town"], ["region", "Region", "region"]]],
+  ["improvements", "3. Improvements", [["building_type", "Building type"], ["accommodation", "Accommodation", "text"],
+    ["construction_details", "Construction details", "text"], ["services", "Services", "text"],
+    ["floor_areas", "Floor areas", "text"], ["size_sqm", "Total floor area (m²)", "num"],
+    ["ancillary_structures", "Ancillary structures", "text"]]],
+  ["title", "4. Title", [["ownership", "Ownership"], ["tenure", "Tenure", "tenure"], ["source_of_title", "Source of title"],
+    ["unexpired_term", "Unexpired term"], ["planning_status", "Planning status"]]],
+  ["valuation", "5. Valuation", [["purpose", "Purpose", "purpose"], ["basis_of_value", "Basis of value", "basis"],
+    ["inspection_date", "Date of inspection", "date"], ["record_date", "Date of valuation", "date"],
+    ["method", "Valuation method", "method"], ["capital_value", "Market value", "num"],
+    ["forced_sale_value", "Forced sale value", "num"]],
+    [["currency", "Currency"], ["annual_rent", "Market rent (annual)", "num"], ["yield_pct", "Yield %", "num"],
+     ["value_per_sqm", "Value / m²", "num"], ["rent_per_sqm", "Rent / m² p.a.", "num"],
+     ["valuation_basis", "Capital / rental / both"], ["valuer", "Valuer identity", "wide"],
+     ["property_valued", "Property valued (summary)", "text"]]],
+  ["marketability", "6. Marketability", [["location_rating", "Location rating", "rating"],
+    ["accessibility_rating", "Accessibility rating", "rating"], ["state_of_repair", "State of repair", "repair"],
+    ["user_conformity", "User conformity", "conformity"], ["neighbourhood_rating", "Neighbourhood rating", "rating"],
+    ["overall_marketability", "Overall marketability", "rating"]]],
+  ["assumptions", "7. Assumptions", [["encumbrances", "Encumbrances", "text"], ["legal_disclaimer", "Legal disclaimer", "text"],
+    ["inspection_limitation", "Inspection limitation", "text"], ["purpose_restriction", "Purpose restriction", "text"],
+    ["assumptions", "Valuation assumptions", "text"]]],
+  ["attachments", "8. Attachments", null],
+];
+const [P_TAB, L_TAB, I_TAB, , , , A_TAB, ATT_TAB] = VALUATION_TABS;
+const TABS_BY_CATEGORY = {
+  valuation: VALUATION_TABS,
+  cost: [P_TAB, L_TAB, I_TAB, ["cost", "Cost", [["purpose", "Purpose", "purpose"], ["record_date", "Date", "date"],
+    ["currency", "Currency"], ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Cost / m²", "num"],
+    ["specification", "Specification"]]], A_TAB, ATT_TAB],
+  housing: [L_TAB, ["housing", "Housing market", [["purpose", "Purpose", "purpose"], ["record_date", "Date", "date"],
+    ["currency", "Currency"], ["property_type", "Property type", "ptype"], ["avg_price", "Average price", "num"],
+    ["avg_monthly_rent", "Average monthly rent", "num"], ["supply_units", "Supply (units)", "int"],
+    ["demand_level", "Demand level"], ["affordability_ratio", "Affordability ratio", "num"],
+    ["stock_notes", "Housing stock notes", "text"]]], A_TAB, ATT_TAB],
+};
+// Kept for code that refers to "all common fields".
+const COMMON_FIELDS = [...P_TAB[2], ...P_TAB[3], ...L_TAB[2], ...L_TAB[3]];
 const BREAKDOWN_KEYS = ["preliminaries", "substructure", "superstructure", "finishes", "services", "external_works", "contingency", "other"];
-const LISTS = { mmda: "dl-districts", loc: "dl-locations", region: "dl-regions", ptype: "dl-types", purpose: "dl-purposes", basis: "dl-bases" };
-const HINTS = { gps: "e.g. GA-183-8164", mmda: "e.g. Adentan Municipal", basis: "e.g. Market Value", purpose: "e.g. Mortgage" };
+const LISTS = { mmda: "dl-districts", loc: "dl-locations", region: "dl-regions", ptype: "dl-types", purpose: "dl-purposes",
+  basis: "dl-bases", tenure: "dl-tenure", method: "dl-methods" };
+const HINTS = { gps: "e.g. GA-183-8164", coords: "e.g. 5.6396, -0.1676", mmda: "e.g. Adentan Municipal",
+  basis: "e.g. Market Value", purpose: "e.g. Mortgage", tenure: "e.g. Leasehold" };
+const ATTACH_KINDS = [["photo", "Photographs"], ["site_plan", "Site plan"], ["title_document", "Title documents"],
+  ["allocation_note", "Allocation note"], ["valuation_certificate", "Valuation certificate"], ["supporting", "Supporting documents"]];
+state.lastTab = "property";
 
 function fieldHTML([key, label, kind], rec) {
   const v = rec[key] ?? "";
   if (kind === "text") return `<label class="wide">${esc(label)}<textarea name="${key}" rows="2">${esc(v)}</textarea></label>`;
-  if (LISTS[kind] || kind === "gps") {
+  if (SELECTS[kind]) {
+    const opts = SELECTS[kind].includes(v) || !v ? SELECTS[kind] : [v, ...SELECTS[kind]];
+    return `<label>${esc(label)}<select name="${key}"><option value=""></option>${opts.map((o) => `<option ${o === v ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
+  }
+  if (LISTS[kind] || HINTS[kind]) {
     const list = LISTS[kind] ? ` list="${LISTS[kind]}"` : "";
     const hint = HINTS[kind] ? ` placeholder="${HINTS[kind]}"` : "";
     const extra = kind === "gps" ? ' autocapitalize="characters" spellcheck="false"' : "";
@@ -337,23 +371,116 @@ function fieldHTML([key, label, kind], rec) {
 
 function recordEditorHTML(rec, idx) {
   const cat = rec.category || "valuation";
+  const tabs = TABS_BY_CATEGORY[cat];
   const comps = rec.comparables || [];
   const bd = rec.cost_breakdown || {};
   const grid = (fields) => `<div class="form-grid">${fields.map((f) => fieldHTML(f, rec)).join("")}</div>`;
+  const panel = ([key, , fields, more]) => {
+    if (key === "attachments") {
+      return `<div class="attach-panel" data-record-id="${rec.id || ""}">${rec.id ? '<p class="muted small">Loading…</p>'
+        : '<p class="muted">Attachments can be added once the record is saved. After approving, open it in <b>Data &amp; Search</b> (or reopen this report) and use this tab.</p>'}</div>`;
+    }
+    let html = grid(fields);
+    if (more) html += `<p class="sub-head">Also recorded</p>${grid(more)}`;
+    if (key === "valuation") {
+      html += `<p class="sub-head">Comparables (${comps.length})</p>${comps.length ? table(["Address", "Date", "Price", "Rent", "Size m²", "Price/m²", "Notes"], comps.map((c) => [esc(c.address), esc(c.date), { v: fmt(c.price), num: true }, { v: fmt(c.rent), num: true }, { v: fmt(c.size_sqm), num: true }, { v: fmt(c.price_per_sqm), num: true }, esc(c.notes)])) : '<p class="muted small">None extracted.</p>'}`;
+    }
+    if (key === "cost") {
+      html += `<p class="sub-head">Elemental cost breakdown</p><div class="form-grid">${BREAKDOWN_KEYS.map((k) => `<label>${k.replace("_", " ")}<input type="number" step="any" name="bd_${k}" value="${esc(bd[k] ?? "")}"></label>`).join("")}</div>`;
+    }
+    return html;
+  };
   return `<div class="review-record" data-idx="${idx}">
     <div class="row between"><strong>Record ${idx + 1}</strong>
       <div class="row gap"><label>Category<select name="category">${["valuation", "cost", "housing"].map((c) => `<option ${c === cat ? "selected" : ""}>${c}</option>`).join("")}</select></label>
       <button type="button" class="btn small danger rm-record">Remove</button></div></div>
-    <fieldset><legend>Address</legend>${grid(ADDRESS_FIELDS)}</fieldset>
-    <fieldset><legend>Report</legend>${grid(REPORT_FIELDS)}</fieldset>
-    ${cat === "valuation" ? `<fieldset><legend>Valuation details</legend>${grid(VALUATION_DETAILS)}</fieldset>
-      <fieldset><legend>Method &amp; figures</legend>${grid(VALUATION_FIGURES)}</fieldset>`
-      : `<fieldset><legend>${esc(cat)} details</legend>${grid(CATEGORY_FIELDS[cat])}</fieldset>`}
-    ${cat === "cost" ? `<fieldset><legend>Elemental cost breakdown</legend><div class="form-grid">${BREAKDOWN_KEYS.map((k) => `<label>${k.replace("_", " ")}<input type="number" step="any" name="bd_${k}" value="${esc(bd[k] ?? "")}"></label>`).join("")}</div></fieldset>` : ""}
-    ${cat === "valuation" ? `<fieldset><legend>Comparables (${comps.length})</legend>${comps.length ? table(["Address", "Date", "Price", "Rent", "Size m²", "Price/m²", "Notes"], comps.map((c) => [esc(c.address), esc(c.date), { v: fmt(c.price), num: true }, { v: fmt(c.rent), num: true }, { v: fmt(c.size_sqm), num: true }, { v: fmt(c.price_per_sqm), num: true }, esc(c.notes)])) : '<p class="muted small">None extracted.</p>'}</fieldset>` : ""}
-    <div class="form-grid"><label class="wide">Tags (comma separated)<input name="tags" value="${esc((rec.tags || []).join(", "))}"></label>
+    <div class="tab-bar" role="tablist">${tabs.map(([key, label]) => `<button type="button" role="tab" class="tab-btn" data-tab="${key}">${esc(label)}</button>`).join("")}</div>
+    ${tabs.map((t) => `<section class="tab-panel" role="tabpanel" data-tab="${t[0]}">${panel(t)}</section>`).join("")}
+    <div class="form-grid tab-foot"><label class="wide">Tags (comma separated)<input name="tags" value="${esc((rec.tags || []).join(", "))}"></label>
     <label class="wide">Notes<textarea name="notes" rows="2">${esc(rec.notes || "")}</textarea></label></div>
   </div>`;
+}
+
+/* Tabs + attachments for an editor that is now in the page. */
+function initRecordEditor(el) {
+  const show = (key) => {
+    const btns = $$(".tab-btn", el);
+    if (!btns.some((b) => b.dataset.tab === key)) key = btns[0].dataset.tab;
+    btns.forEach((b) => { const on = b.dataset.tab === key; b.classList.toggle("active", on); b.setAttribute("aria-selected", on); });
+    $$(".tab-panel", el).forEach((p) => p.classList.toggle("active", p.dataset.tab === key));
+    state.lastTab = key;
+  };
+  $$(".tab-btn", el).forEach((b) => b.addEventListener("click", () => show(b.dataset.tab)));
+  show(state.lastTab);
+  const att = $(".attach-panel", el);
+  if (att && att.dataset.recordId) loadAttachments(att, att.dataset.recordId);
+}
+
+async function loadAttachments(box, recordId) {
+  let items = [];
+  try { items = await api(`/api/records/${recordId}/attachments`); }
+  catch (e) { box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  box.innerHTML = ATTACH_KINDS.map(([kind, label]) => {
+    const mine = items.filter((a) => a.kind === kind);
+    const accept = kind === "photo" ? "image/*" : ".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.heic,.webp,.tif,.tiff,.txt";
+    return `<div class="attach-kind" data-kind="${kind}">
+      <div class="row between"><b>${esc(label)}</b> <span class="muted small">${mine.length || "none"}</span>
+        ${can("junior") ? `<span><button type="button" class="btn small attach-add">+ Add</button><input type="file" class="attach-input" multiple accept="${accept}" hidden></span>` : ""}</div>
+      <div class="attach-items">${mine.map((a) => `<div class="attach-item" data-id="${a.id}">
+        ${a.content_type.startsWith("image/") ? `<img class="attach-thumb" alt="${esc(a.filename)}" data-id="${a.id}">` : '<span class="attach-icon">📄</span>'}
+        <span class="attach-name" title="${esc(a.filename)}">${esc(a.filename)}<br><span class="muted small">${kb(a.size)}</span></span>
+        <span class="row gap"><button type="button" class="btn small attach-open">Open</button>
+        ${can("senior") ? '<button type="button" class="btn small danger attach-del">Delete</button>' : ""}</span></div>`).join("")}</div>
+    </div>`;
+  }).join("") + `<p class="muted small">Up to 10 MB per file. Photos can be taken straight from a phone camera.</p>`;
+  $$(".attach-thumb", box).forEach(async (img) => {
+    try { const r = await api(`/api/attachments/${img.dataset.id}`, { raw: true }); img.src = URL.createObjectURL(await r.blob()); } catch (_) {}
+  });
+  $$(".attach-kind", box).forEach((k) => {
+    const input = $(".attach-input", k);
+    const add = $(".attach-add", k);
+    if (add) add.onclick = () => input.click();
+    if (input) input.onchange = async () => {
+      if (!input.files.length) return;
+      const fd = new FormData();
+      fd.append("kind", k.dataset.kind);
+      [...input.files].forEach((f) => fd.append("files", f));
+      add.disabled = true; add.textContent = "Uploading…";
+      try { await api(`/api/records/${recordId}/attachments`, { method: "POST", body: fd }); toast("Attachment added"); }
+      catch (e) { toast(e.message, true); }
+      loadAttachments(box, recordId);
+    };
+  });
+  $$(".attach-item", box).forEach((row) => {
+    const a = items.find((x) => String(x.id) === row.dataset.id);
+    $(".attach-open", row).onclick = async () => {
+      if (a.content_type.startsWith("image/")) return showImage(a);
+      download(`/api/attachments/${a.id}?download=true`, a.filename).catch((e) => toast(e.message, true));
+    };
+    const del = $(".attach-del", row);
+    if (del) del.onclick = async () => {
+      if (!confirm(`Delete ${a.filename}?`)) return;
+      try { await api(`/api/attachments/${a.id}`, { method: "DELETE" }); toast("Attachment deleted"); } catch (e) { toast(e.message, true); }
+      loadAttachments(box, recordId);
+    };
+  });
+  $$(".attach-thumb", box).forEach((img) => (img.onclick = () => showImage(items.find((x) => String(x.id) === img.dataset.id))));
+}
+
+async function showImage(a) {
+  const r = await api(`/api/attachments/${a.id}`, { raw: true });
+  const url = URL.createObjectURL(await r.blob());
+  const box = document.createElement("div");
+  box.className = "lightbox";
+  box.innerHTML = `<figure><img src="${url}" alt="${esc(a.filename)}"><figcaption>${esc(a.filename)}
+    <button type="button" class="btn small">Download</button> <button type="button" class="btn small primary">Close</button></figcaption></figure>`;
+  const [dl, close] = $$("button", box);
+  const done = () => { box.remove(); URL.revokeObjectURL(url); };
+  dl.onclick = () => download(`/api/attachments/${a.id}?download=true`, a.filename);
+  close.onclick = done;
+  box.addEventListener("click", (e) => { if (e.target === box) done(); });
+  document.body.appendChild(box);
 }
 
 function readRecordEditor(el, original) {
@@ -417,6 +544,7 @@ async function openReview(id) {
     $("#close-review").onclick = () => panel.classList.add("hidden");
     $("#dl-file").onclick = () => download(`/api/reports/${id}/file`, r.filename).catch((e) => toast(e.message, true));
     if (!editable) $$("input, select, textarea, .rm-record", $("#review-form")).forEach((x) => (x.disabled = true));
+    $$(".review-record", panel).forEach((el) => initRecordEditor(el));
     if (pendingUpdate) markChanges(panel, saved);
     $$(".review-record", panel).forEach((el) => {
       const i = Number(el.dataset.idx);
@@ -498,6 +626,9 @@ function markChanges(panel, saved) {
       label.insertAdjacentHTML("beforeend", `<span class="was-hint">Saved: ${esc(shown)}</span>`);
     });
   });
+  $$(".review-record", panel).forEach((el) => $$(".tab-panel", el).forEach((p) => {
+    if ($("label.changed", p)) $(`.tab-btn[data-tab="${p.dataset.tab}"]`, el)?.classList.add("has-change");
+  }));
   if (!changed) panel.querySelector(".notice")?.insertAdjacentHTML("beforeend", "<br><b>No differences from the saved record.</b>");
 }
 
@@ -545,6 +676,7 @@ function openRecord(rec) {
     <div class="row gap">${editable ? '<button class="btn primary" id="rec-save">Save</button>' : ""}${rec && rec.id && can("senior") ? '<button class="btn danger" id="rec-del">Delete</button>' : ""}</div>`);
   const el = $("#rec-form .review-record");
   $(".rm-record", el).remove();
+  initRecordEditor(el);
   if (!editable) $$("#rec-form input, #rec-form select, #rec-form textarea").forEach((x) => (x.disabled = true));
   // Re-render with the category's fields, keeping what has been typed so far.
   $("select[name=category]", el).addEventListener("change", () => {
@@ -583,7 +715,10 @@ const GRID_COLS = [
   ["location", "Location"], ["district", "MMDA", "list:dl-districts"], ["city", "City"],
   ["region", "Region", "list:dl-regions"], ["property_type", "Property type", "list:dl-types"], ["client", "Client"],
   ["purpose", "Purpose", "list:dl-purposes"], ["basis_of_value", "Basis of value", "list:dl-bases"], ["valuer", "Valuer"],
-  ["address", "Street address"], ["size_sqm", "Size m²", "num"], ["capital_value", "Opinion of value", "num"],
+  ["property_name", "Property name / no."], ["owner", "Owner"], ["tenure", "Tenure", "list:dl-tenure"],
+  ["address", "Address"], ["size_sqm", "Floor area m²", "num"], ["inspection_date", "Date of inspection", "date"],
+  ["capital_value", "Market value", "num"], ["forced_sale_value", "Forced sale value", "num"],
+  ["overall_marketability", "Overall marketability"],
   ["annual_rent", "Annual rent", "num"], ["yield_pct", "Yield %", "num"], ["method", "Method"],
   ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Cost / m²", "num"], ["avg_price", "Avg price", "num"],
   ["avg_monthly_rent", "Avg rent / month", "num"], ["currency", "Currency"], ["tags", "Tags", "tags"], ["notes", "Notes"],

@@ -81,6 +81,56 @@ BASES_OF_VALUE = ["Market Value", "Market Rent", "Forced Sale Value", "Fair Valu
                   "Reinstatement Cost", "Depreciated Replacement Cost", "Mortgage Lending Value"]
 
 
+SECTION_LABELS = {
+    "property_name": ["property name", "property number", "house number", "house no", "plot number", "plot no"],
+    "owner": ["owner", "registered owner", "name of owner", "proprietor"],
+    "use_occupancy": ["use / occupancy", "use/occupancy", "occupancy", "current use", "use"],
+    "highest_best_use": ["highest and best use", "highest & best use"],
+    "land_size": ["land size", "land area", "plot size", "site area"],
+    "accessibility": ["accessibility", "access"],
+    "building_type": ["building type", "type of building"],
+    "accommodation": ["accommodation"],
+    "construction_details": ["construction details", "construction", "specification"],
+    "services": ["services", "utilities"],
+    "floor_areas": ["floor areas", "floor area"],
+    "ancillary_structures": ["ancillary structures", "ancillary buildings", "outbuildings"],
+    "ownership": ["ownership"],
+    "tenure": ["tenure", "interest valued"],
+    "source_of_title": ["source of title", "title document", "title"],
+    "unexpired_term": ["unexpired term", "unexpired lease term", "residual term"],
+    "planning_status": ["planning status", "planning", "building permit", "zoning"],
+    "location_rating": ["location rating"],
+    "accessibility_rating": ["accessibility rating"],
+    "state_of_repair": ["state of repair", "condition"],
+    "user_conformity": ["user conformity", "conformity"],
+    "neighbourhood_rating": ["neighbourhood rating", "neighborhood rating"],
+    "overall_marketability": ["overall marketability", "marketability"],
+    "encumbrances": ["encumbrances", "encumbrance"],
+    "legal_disclaimer": ["legal disclaimer", "disclaimer"],
+    "inspection_limitation": ["inspection limitation", "inspection limitations", "limitations"],
+    "purpose_restriction": ["purpose restriction", "restriction on use", "reliance"],
+}
+
+COORD_RE = re.compile(r"(-?\d{1,2}\.\d{3,})\s*°?\s*([NS])?\s*[,;/ ]\s*(-?\d{1,3}\.\d{3,})\s*°?\s*([EW])?", re.I)
+
+
+def find_coordinates(text: str) -> str | None:
+    """Decimal GPS coordinates, e.g. '5.6396, -0.1676' or '5.6396 N, 0.1676 W'."""
+    labelled = _labelled(text, ["gps coordinates", "coordinates", "lat/long", "latitude/longitude", "lat long"])
+    for source in ([labelled] if labelled else []):
+        m = COORD_RE.search(source)
+        if m:
+            lat, ns, lon, ew = float(m.group(1)), m.group(2), float(m.group(3)), m.group(4)
+            if ns and ns.upper() == "S":
+                lat = -abs(lat)
+            if ew and ew.upper() == "W":
+                lon = -abs(lon)
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return f"{lat:.6f}".rstrip("0").rstrip(".") + ", " + f"{lon:.6f}".rstrip("0").rstrip(".")
+        return labelled[:80]
+    return None
+
+
 def find_gps(text: str) -> str | None:
     """Ghana Post GPS digital address, e.g. GA-183-8164."""
     labelled = _labelled(text, ["gps address", "digital address", "ghana post gps", "gps"])
@@ -164,7 +214,7 @@ def _labelled_amount(text: str, labels: list[str]) -> tuple[float | None, str | 
 
 
 def find_date(text: str) -> date | None:
-    labelled = _labelled(text, ["date of valuation", "valuation date", "date of inspection", "report date", "date"])
+    labelled = _labelled(text, ["date of valuation", "valuation date", "report date", "date of inspection", "date"])
     candidates = [labelled] if labelled else []
     candidates.append(text[:4000])
     for chunk in candidates:
@@ -259,6 +309,15 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
                                                      "description of property", "description of the property"])
         record["basis_of_value"] = find_basis_of_value(text)
         record["valuer"] = _labelled(text, ["valuer", "valued by", "prepared by", "signed by", "reporting valuer"])
+        record["forced_sale_value"], _ = _labelled_amount(text, ["forced sale value", "fsv"])
+        if record.get("forced_sale_value") and record.get("capital_value") == record["forced_sale_value"]:
+            record["capital_value"], _ = _labelled_amount(text, ["open market value", "market value"])
+        insp = _labelled(text, ["date of inspection", "inspection date", "date inspected"])
+        d = find_date(insp) if insp else None
+        record["inspection_date"] = d.isoformat() if d else None
+        for key, labels in SECTION_LABELS.items():
+            record[key] = record.get(key) or _labelled(text, labels)
+        record["gps_coordinates"] = find_coordinates(text)
     elif category == "cost":
         record["total_cost"], cur = _labelled_amount(text, ["total construction cost", "total cost", "contract sum", "estimated cost", "total"])
         record["cost_per_sqm"], c2 = _labelled_amount(text, ["cost per square met", "cost per sq", "cost/m", "rate per m", "per m2", "per m²"])

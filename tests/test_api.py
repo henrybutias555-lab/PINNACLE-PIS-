@@ -658,3 +658,117 @@ def test_excel_round_trip_import(client, admin):
     # Viewers cannot import; non-Excel files are rejected clearly
     assert client.post("/api/imports/records/preview", headers=admin,
                        files={"file": ("x.xlsx", b"not excel", "application/octet-stream")}).status_code == 400
+
+
+FULL_REPORT = """VALUATION REPORT
+Property name: Plot 12, Block C, Santeo Estate
+Owner: Mr. Kwame Asante
+Use / occupancy: Residential, owner-occupied
+Highest and best use: Residential
+Address: Quartey Papafio Hills, Santeo
+GPS Address: GA-183-8164
+GPS coordinates: 5.6396 N, 0.1676 W
+Land size: 0.25 acres (1,011.7 sq m)
+Accessibility: Tarred road, 2 km from the Adjiringanor road
+Building type: Two-storey detached house
+Accommodation: 5 bedrooms en-suite, living, dining, kitchen
+Construction details: Sandcrete block walls, concrete floors, aluminium roofing
+Services: Pipe-borne water, ECG electricity, septic tank
+Floor areas: Ground 110 sq m, First 96.55 sq m
+Ancillary structures: Boys quarters, garage, fence wall
+Ownership: Private
+Tenure: Leasehold
+Source of title: Land Title Certificate No. GA 12345
+Unexpired term: 87 years
+Planning status: Building permit obtained
+Purpose of valuation: Mortgage
+Basis of value: Market Value and Forced Sale Value
+Date of inspection: 20 July 2023
+Date of valuation: 1 August 2023
+Market value: GHS 2,300,000
+Forced sale value: GHS 1,610,000
+Location rating: Good
+State of repair: Good
+Overall marketability: Very good
+Encumbrances: None known
+Legal disclaimer: This report is not a legal opinion on title
+Inspection limitation: No structural survey was carried out
+Purpose restriction: For mortgage purposes only
+Assumptions: Title is good and marketable"""
+
+
+def test_report_sections_extracted():
+    from app.services import rules
+
+    r = rules.extract(FULL_REPORT)["records"][0]
+    expect = {
+        "property_name": "Plot 12, Block C, Santeo Estate", "owner": "Mr. Kwame Asante",
+        "use_occupancy": "Residential, owner-occupied", "highest_best_use": "Residential",
+        "gps_address": "GA-183-8164", "gps_coordinates": "5.6396, -0.1676",
+        "land_size": "0.25 acres (1,011.7 sq m)", "building_type": "Two-storey detached house",
+        "ancillary_structures": "Boys quarters, garage, fence wall", "ownership": "Private", "tenure": "Leasehold",
+        "source_of_title": "Land Title Certificate No. GA 12345", "unexpired_term": "87 years",
+        "planning_status": "Building permit obtained", "inspection_date": "2023-07-20", "record_date": "2023-08-01",
+        "capital_value": 2300000, "forced_sale_value": 1610000, "location_rating": "Good",
+        "state_of_repair": "Good", "overall_marketability": "Very good", "encumbrances": "None known",
+        "purpose_restriction": "For mortgage purposes only", "property_type": "residential",
+    }
+    wrong = {k: (r.get(k), v) for k, v in expect.items() if r.get(k) != v}
+    assert not wrong, wrong
+
+
+def test_attachments(client, admin, make_user):
+    rid = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Osu",
+                                                        "tenure": "Leasehold", "forced_sale_value": 700000,
+                                                        "inspection_date": "2025-01-10"}).json()["id"]
+    rec = client.get(f"/api/records/{rid}", headers=admin).json()
+    assert rec["tenure"] == "Leasehold" and rec["forced_sale_value"] == 700000 and rec["inspection_date"] == "2025-01-10"
+    png = (b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    r = client.post(f"/api/records/{rid}/attachments", headers=admin, data={"kind": "photo"},
+                    files=[("files", ("front.png", png, "image/png")), ("files", ("rear.png", png, "image/png"))])
+    assert r.status_code == 201, r.text
+    client.post(f"/api/records/{rid}/attachments", headers=admin, data={"kind": "site_plan"},
+                files=[("files", ("site plan.pdf", b"%PDF-1.4 x", "application/pdf"))])
+    items = client.get(f"/api/records/{rid}/attachments", headers=admin).json()
+    assert [(a["kind"], a["filename"]) for a in items] == [("photo", "front.png"), ("photo", "rear.png"),
+                                                           ("site_plan", "site plan.pdf")]
+    got = client.get(f"/api/attachments/{items[0]['id']}", headers=admin)
+    assert got.content == png and got.headers["content-type"] == "image/png"
+    assert "attachment;" in client.get(f"/api/attachments/{items[2]['id']}?download=true", headers=admin).headers["content-disposition"]
+    # rules: bad kind, bad type, viewer can't upload, junior can't delete
+    assert client.post(f"/api/records/{rid}/attachments", headers=admin, data={"kind": "selfie"},
+                       files=[("files", ("a.png", png, "image/png"))]).status_code == 422
+    assert client.post(f"/api/records/{rid}/attachments", headers=admin, data={"kind": "photo"},
+                       files=[("files", ("a.exe", b"MZ", "application/octet-stream"))]).status_code == 415
+    viewer, junior = make_user("viewer"), make_user("junior")
+    assert client.get(f"/api/records/{rid}/attachments", headers=viewer).status_code == 200
+    assert client.post(f"/api/records/{rid}/attachments", headers=viewer, data={"kind": "photo"},
+                       files=[("files", ("a.png", png, "image/png"))]).status_code == 403
+    assert client.delete(f"/api/attachments/{items[1]['id']}", headers=junior).status_code == 403
+    assert client.delete(f"/api/attachments/{items[1]['id']}", headers=admin).status_code == 204
+    # deleting the record removes its attachments
+    assert client.delete(f"/api/records/{rid}", headers=admin).status_code == 204
+    assert client.get(f"/api/attachments/{items[0]['id']}", headers=admin).status_code == 404
+
+
+def test_new_sections_in_excel_and_import(client, admin):
+    import io as _io
+
+    import openpyxl
+
+    rid = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Labone",
+                                                        "tenure": "Leasehold"}).json()["id"]
+    wb = openpyxl.load_workbook(_io.BytesIO(client.get("/api/exports/evidence?format=xlsx&q=Labone", headers=admin).content))
+    ws = wb["All records"]
+    header = [c.value for c in ws[4]]
+    for name in ("Owner", "Tenure", "Date of inspection", "Forced sale value", "Overall marketability", "Encumbrances"):
+        assert name in header, name
+    row = next(r for r in range(5, ws.max_row + 1) if ws.cell(r, 1).value == rid)
+    ws.cell(row, header.index("Forced sale value") + 1).value = 650000
+    ws.cell(row, header.index("Date of inspection") + 1).value = "2025-02-14"
+    buf = _io.BytesIO(); wb.save(buf)
+    res = client.post("/api/imports/records/apply", headers=admin,
+                      files={"file": ("e.xlsx", buf.getvalue(), "application/octet-stream")}).json()
+    assert res["updated"] == 1, res
+    rec = client.get(f"/api/records/{rid}", headers=admin).json()
+    assert rec["forced_sale_value"] == 650000 and rec["inspection_date"] == "2025-02-14"

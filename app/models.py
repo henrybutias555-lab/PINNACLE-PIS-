@@ -112,6 +112,38 @@ class Record(Base):
     affordability_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     stock_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Report sections (property, location, improvements, title, valuation, marketability, assumptions)
+    property_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    use_occupancy: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    highest_best_use: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    gps_coordinates: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    land_size: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    accessibility: Mapped[str | None] = mapped_column(Text, nullable=True)
+    building_type: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    accommodation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    construction_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    services: Mapped[str | None] = mapped_column(Text, nullable=True)
+    floor_areas: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ancillary_structures: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ownership: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    tenure: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_of_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    unexpired_term: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    planning_status: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    inspection_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    forced_sale_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_rating: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    accessibility_rating: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    state_of_repair: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    user_conformity: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    neighbourhood_rating: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    overall_marketability: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    encumbrances: Mapped[str | None] = mapped_column(Text, nullable=True)
+    legal_disclaimer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    inspection_limitation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    purpose_restriction: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     extra: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -121,6 +153,30 @@ class Record(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     report: Mapped[Report | None] = relationship(back_populates="records")
+    attachments: Mapped[list["Attachment"]] = relationship(back_populates="record", cascade="all, delete-orphan",
+                                                           order_by="Attachment.id")
+
+
+ATTACHMENT_KINDS = ("photo", "site_plan", "title_document", "allocation_note", "valuation_certificate", "supporting")
+
+
+class Attachment(Base):
+    """A file attached to a record (photographs, site plan, title documents, ...).
+    Stored in the database so it survives on hosts without a persistent disk."""
+
+    __tablename__ = "attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    record_id: Mapped[int] = mapped_column(ForeignKey("records.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(40), index=True)
+    filename: Mapped[str] = mapped_column(String(500))
+    content_type: Mapped[str] = mapped_column(String(120))
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    uploaded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    record: Mapped[Record] = relationship(back_populates="attachments")
 
 
 class ActivityLog(Base):

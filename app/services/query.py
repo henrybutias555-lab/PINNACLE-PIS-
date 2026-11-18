@@ -110,7 +110,8 @@ def apply_filters(stmt: Select, f: RecordFilters) -> Select:
                 _ilike(Record.title, term), _ilike(Record.address, term), _ilike(Record.location, term),
                 _ilike(Record.city, term), _ilike(Record.district, term), _ilike(Record.region, term),
                 _ilike(Record.property_type, term), _ilike(Record.notes, term), _ilike(Record.gps_address, term),
-                _ilike(Record.valuer, term), _ilike(Record.basis_of_value, term),
+                _ilike(Record.valuer, term), _ilike(Record.basis_of_value, term), _ilike(Record.owner, term),
+                _ilike(Record.property_name, term), _ilike(Record.tenure, term), _ilike(Record.building_type, term),
                 _ilike(Record.client, term), _ilike(Record.method, term), _ilike(Record.purpose, term),
             ))
     if f.min_amount is not None or f.max_amount is not None:
