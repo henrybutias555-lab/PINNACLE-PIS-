@@ -1915,3 +1915,40 @@ def test_discussion_reply_streams(client, admin, monkeypatch):
         + "\nThe capitalisation rate adopted was 8.5 percent.\n" + "\n".join("More filler text here." for _ in range(2000))
     ctx = research_chat._context(long_text, "what capitalisation rate was adopted?", 20_000)
     assert len(ctx) <= 21_000 and "Title and abstract." in ctx and "capitalisation rate adopted was 8.5" in ctx
+
+
+def test_land_value_trends_by_mmda(client, admin):
+    rows = [
+        # land valuations in Ga East (value per acre: 400k/0.25ac = 1.6m; 450k/0.25 = 1.8m; 1m/0.5 = 2m)
+        {"district": "Ga East Municipal", "property_type": "land", "capital_value": 400_000, "land_size": "0.25 acres", "record_date": "2024-02-01"},
+        {"district": "Ga East Municipal", "property_type": "land", "capital_value": 450_000, "land_size": "100ft x 70ft", "record_date": "2024-11-01"},
+        {"district": "Ga East Municipal", "property_type": "land", "capital_value": 1_000_000, "land_size": "0.5 acres", "record_date": "2025-03-01"},
+        # a house whose report states the land value separately (cost approach)
+        {"district": "Ga East Municipal", "property_type": "residential", "capital_value": 2_300_000, "land_value": 500_000,
+         "land_size": "0.25 acres", "record_date": "2025-04-01"},
+        # another MMDA
+        {"district": "Kpone Katamanso Municipal", "property_type": "land", "capital_value": 200_000, "land_size": "0.25 acres", "record_date": "2025-01-15"},
+        # a house without a stated land value does not count
+        {"district": "Ga East Municipal", "property_type": "residential", "capital_value": 3_000_000, "land_size": "0.3 acres", "record_date": "2025-02-01"},
+    ]
+    for row in rows:
+        r = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Landtest", **row})
+        assert r.status_code == 201, r.text
+    assert r.json()["land_area_sqm"] == round(0.3 * 4046.8564, 4)
+    d = client.get("/api/analytics/land?location=Landtest&districts=Ga East Municipal,Kpone Katamanso Municipal"
+                   "&metric=per_acre&interval=year", headers=admin).json()
+    ga, kpone = d["series"]
+    assert ga["district"] == "Ga East Municipal" and [p["period"] for p in ga["points"]] == ["2024", "2025"]
+    p2024 = ga["points"][0]
+    assert p2024["count"] == 2 and abs(p2024["mean"] - (1_600_000 + 450_000 / (100 * 70 * 0.09290304) * 4046.8564) / 2) < 50
+    assert ga["points"][1]["count"] == 2 and abs(ga["points"][1]["mean"] - 2_000_000) < 50
+    assert abs(kpone["points"][0]["mean"] - 800_000) < 50
+    total = client.get("/api/analytics/land?location=Landtest&metric=total&interval=year", headers=admin).json()
+    assert total["series"][0]["district"] == "All MMDAs" and total["series"][0]["valuations"] == 5
+
+    # the land value stated in a cost-approach report is read
+    rep = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", ("drc-land.txt", (
+        b"VALUATION REPORT\nLocation: Dome, Accra\nMarket value: GH\xc2\xa2 2,300,000\nLand size: 0.25 acres\n"
+        b"COST APPROACH\nAdd: Land value GH\xc2\xa2 450,000\n"), "text/plain"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert rec["land_value"] == 450_000 and rec["land_area_sqm"] == round(0.25 * 4046.8564, 4)

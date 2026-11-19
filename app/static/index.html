@@ -119,6 +119,21 @@
         <form id="intel-filters" class="card filters"></form>
         <div id="intel-warning" class="notice" hidden></div>
         <div id="intel-metrics" class="kpis"></div>
+        <div class="card" id="land-card">
+          <div class="row between"><h3>🌍 Land value trends by MMDA</h3></div>
+          <p class="muted small">Average land values over time in each Metropolitan, Municipal and District Assembly: from land valuations and the land values stated in other reports (e.g. the cost approach).</p>
+          <div class="filters land-controls">
+            <label>MMDA<select id="land-mmda"></select></label>
+            <label>Compare with<select id="land-cmp1"></select></label>
+            <label>and<select id="land-cmp2"></select></label>
+            <label>Measure<select id="land-metric"><option value="per_acre">Average land value per acre</option><option value="per_sqm">Average land value per m²</option><option value="total">Average land value (per valuation)</option></select></label>
+            <label>Period<select id="land-interval"><option value="quarter">Quarterly</option><option value="month">Monthly</option><option value="year">Yearly</option></select></label>
+          </div>
+          <div id="land-summary" class="kpis"></div>
+          <div class="chart-box"><canvas id="land-chart"></canvas></div>
+          <div id="land-table"></div>
+          <p id="land-note" class="muted small"></p>
+        </div>
         <div class="card"><h3>Valuation opinions by basis of value</h3><div id="intel-bases"></div></div>
         <div class="grid two">
           <div class="card">

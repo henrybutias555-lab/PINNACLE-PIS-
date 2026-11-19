@@ -136,6 +136,7 @@ RECORD_COLUMNS = [
     ("Annual rent", "annual_rent", "#,##0"), ("Rent per m² p.a.", "rent_per_sqm", "#,##0.00"),
     ("Yield %", "yield_pct", "0.00"), ("Total construction cost", "total_cost", "#,##0"),
     ("Cost per m²", "cost_per_sqm", "#,##0"), ("External works rate per m²", "external_works_rate", "#,##0"),
+    ("Land value", "land_value", "#,##0"), ("Land area (m²)", "land_area_sqm", "#,##0.00"),
     ("Specification", "specification", None),
     ("Avg house price", "avg_price", "#,##0"), ("Avg monthly rent", "avg_monthly_rent", "#,##0"),
     ("Supply (units)", "supply_units", "#,##0"), ("Demand", "demand_level", None),

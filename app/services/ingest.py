@@ -114,6 +114,9 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         if rec.get("purpose"):
             from .reader import standard_purpose
             rec["purpose"] = standard_purpose(rec["purpose"])
+        if rec.get("land_size"):
+            from .land import land_area_sqm
+            rec["land_area_sqm"] = land_area_sqm(rec["land_size"])
         # Construction cost per m² follows the rates adopted for each part of the building.
         from_text = rules.cost_items_from_text(report.raw_text or text or "")
         items = rules.tidy_cost_items(from_text or rec.get("cost_items") or [])

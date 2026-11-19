@@ -355,3 +355,7 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 .cursor { display: inline-block; margin-left: .1rem; animation: pis-blink 1s steps(2) infinite; color: var(--muted); }
 @keyframes pis-blink { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+
+.land-controls { padding: 0; margin: .4rem 0 .6rem; }
+.land-controls select { max-width: 100%; }
+#land-summary { margin-bottom: .5rem; }

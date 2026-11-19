@@ -147,6 +147,8 @@ class Record(Base):
     highest_best_use: Mapped[str | None] = mapped_column(String(255), nullable=True)
     gps_coordinates: Mapped[str | None] = mapped_column(String(80), nullable=True)
     land_size: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    land_area_sqm: Mapped[float | None] = mapped_column(Float, nullable=True)   # from land_size, in m²
+    land_value: Mapped[float | None] = mapped_column(Float, nullable=True)      # the land's value, when stated
     accessibility: Mapped[str | None] = mapped_column(Text, nullable=True)
     building_type: Mapped[str | None] = mapped_column(String(160), nullable=True)
     accommodation: Mapped[str | None] = mapped_column(Text, nullable=True)

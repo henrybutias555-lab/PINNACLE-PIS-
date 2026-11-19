@@ -828,6 +828,8 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
         record["gps_coordinates"] = find_coordinates(text)
         record["cost_items"] = cost_items_from_text(text) or None
         record["cost_per_sqm"] = adopted_rate(record["cost_items"] or []) or construction_rate(text)
+        record["land_value"], _ = _labelled_amount(text, ["land value", "value of land", "value of the land",
+                                                          "site value", "value of the site", "value of plot"])
         record["external_works_rate"] = external_works_rate(record["cost_items"] or [])
     elif category == "cost":
         record["total_cost"], cur = _labelled_amount(text, ["total construction cost", "total cost", "contract sum", "estimated cost", "total"])
