@@ -47,8 +47,12 @@
         <header class="page-head"><h2>Dashboard</h2></header>
         <div id="dash-warning" class="notice" hidden></div>
         <div id="kpis" class="kpis"></div>
-        <div class="card"><h3>Value opinions by basis of value</h3><p class="muted small">Market value, rent, forced sale,
-          fair, synergistic, marriage value … each averaged separately.</p><div id="dash-bases"></div></div>
+        <div class="card basis-panel">
+          <div class="basis-head"><h3>Analysis by basis of value</h3>
+            <label class="basis-choose">Show <select id="analysis-basis" aria-label="Basis of value to analyse"></select></label></div>
+          <div id="basis-analysis"><p class="muted">Loading…</p></div>
+        </div>
+        <details class="card"><summary><b>All bases of value at a glance</b></summary><div id="dash-bases"></div></details>
         <div class="grid two">
           <div class="card"><h3>Records by location</h3><div id="dash-locations"></div></div>
           <div class="card"><h3>Recent reports</h3><div id="dash-reports"></div></div>

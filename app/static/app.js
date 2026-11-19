@@ -236,6 +236,7 @@ async function loadDashboard() {
   state.byBasis = { rows: s.by_basis || [], cur };
   wireBasisKpi();
   renderBasisTable($("#dash-bases"), s.by_basis || [], cur);
+  setupBasisAnalysis(s.by_basis || []);
   const locs = Object.entries(s.top_locations);
   $("#dash-locations").innerHTML = locs.length ? table(["Location", "Records"], locs.map(([k, v]) => [esc(k), { v: fmt(v), num: true }])) : '<p class="muted">No records yet.</p>';
   $("#dash-reports").innerHTML = reports.length ? table(["Report", "Type", "Status"], reports.map((r) => [esc(r.title || r.filename), esc(r.report_type || "—"), statusPill(r.status)])) : '<p class="muted">No reports uploaded yet.</p>';
@@ -301,6 +302,73 @@ function renderBasisTable(box, rows, cur) {
   rows.map((r) => [esc(r.basis) + (r.per_year ? ' <span class="muted small">(per year)</span>' : ""), { v: r.count, num: true },
     { v: fmt(r.mean), num: true }, { v: fmt(r.median), num: true }, { v: fmt(r.min), num: true }, { v: fmt(r.max), num: true },
     { v: r.per_sqm ? fmt(r.per_sqm) : "—", num: true }]));
+}
+
+/* Dashboard "Analysis by basis of value": pick Market Value, Market Rent, Fair Value ... or
+   "Market Value and Market Rent" to see averages, by location, by property type and the trend. */
+const BOTH = "Market Value|Market Rent";
+function savedAnalysis() { try { return localStorage.getItem("pis_analysis") || "Market Value"; } catch (_) { return "Market Value"; } }
+function setupBasisAnalysis(rows) {
+  const pick = $("#analysis-basis");
+  if (!pick) return;
+  const have = new Set(rows.map((r) => r.basis));
+  const opts = [];
+  if (have.has("Market Value") && have.has("Market Rent")) opts.push([BOTH, "Market Value and Market Rent (with yield)"]);
+  BASES.filter((b) => have.has(b)).forEach((b) => opts.push([b, `${b}`]));
+  if (have.has("Not stated")) opts.push(["Not stated", "Basis not stated"]);
+  BASES.filter((b) => !have.has(b)).forEach((b) => opts.push([b, `${b} (none yet)`]));
+  const want = savedAnalysis();
+  if (!opts.some(([v]) => v === want)) opts.unshift([want, want]);
+  pick.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}"${v === want ? " selected" : ""}>${esc(t)}</option>`).join("");
+  pick.onchange = () => { try { localStorage.setItem("pis_analysis", pick.value); } catch (_) {} loadBasisAnalysis(pick.value); };
+  loadBasisAnalysis(pick.value);
+}
+async function loadBasisAnalysis(choice) {
+  const box = $("#basis-analysis");
+  const [basis, compare] = choice.split("|");
+  box.innerHTML = '<p class="muted">Loading…</p>';
+  let a;
+  try { a = await api(`/api/analytics/basis?${qs({ basis, compare })}`); } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+  const cur = a.currency || (state.health && state.health.default_currency) || "";
+  const bases = a.bases;
+  const word = (b) => (b === "Market Rent" ? "rental opinion" : "value opinion");
+  const yr = (b) => (b === "Market Rent" ? " p.a." : "");
+  if (!bases.some((b) => a.overall[b])) {
+    box.innerHTML = `<p class="muted">No valuations on the basis of ${esc(bases.join(" or "))} yet. Upload a report or set the basis of value on a record.</p>`;
+    return;
+  }
+  const tiles = [];
+  bases.forEach((b) => {
+    const o = a.overall[b];
+    tiles.push(kpi(`Average ${word(b)} — ${b}`, o ? `${cur} ${fmt(o.mean)}${yr(b)}` : "—",
+      o ? `${o.count} valuation${o.count === 1 ? "" : "s"} · median ${fmt(o.median)}` : "none yet"));
+    if (o) tiles.push(kpi(`Range — ${b}`, `${fmt(o.min)} – ${fmt(o.max)}`, `${cur}${yr(b)}`));
+    if (o && o.per_sqm) tiles.push(kpi(`Average per m² — ${b}`, `${cur} ${fmt(o.per_sqm)}`, "value opinion ÷ floor area"));
+  });
+  if (a.yield_pct != null) tiles.push(kpi("Implied yield", `${fmt(a.yield_pct, 2)}%`, "average rent ÷ average value"));
+  const head = (first) => [first, ...bases.flatMap((b) => [{ t: bases.length > 1 ? `${b}: no.` : "Valuations", num: true },
+    { t: `${bases.length > 1 ? b + ": " : ""}average (${cur})`, num: true },
+    ...(b === "Market Rent" ? [] : [{ t: `${bases.length > 1 ? b + ": " : ""}per m²`, num: true }])]),
+    ...(bases.length > 1 && bases.includes("Market Rent") ? [{ t: "Yield", num: true }] : [])];
+  const body = (rows) => rows.map((r) => [esc(r.name), ...bases.flatMap((b) => {
+    const o = r[b];
+    return [{ v: o ? o.count : "—", num: true }, { v: o ? fmt(o.mean) : "—", num: true },
+      ...(b === "Market Rent" ? [] : [{ v: o && o.per_sqm ? fmt(o.per_sqm) : "—", num: true }])];
+  }), ...(bases.length > 1 && bases.includes("Market Rent") ? [{ v: r.yield_pct != null ? `${fmt(r.yield_pct, 2)}%` : "—", num: true }] : [])]);
+  const sect = (title, first, rows) => (rows.length ? `<h4>${title}</h4>${table(head(first), body(rows))}` : "");
+  box.innerHTML = `<div class="kpis">${tiles.join("")}</div>
+    ${a.excluded_suspect ? `<p class="muted small">${a.excluded_suspect} valuation(s) with a figure that looks mis-read are left out.</p>` : ""}
+    ${bases.length > 1
+    ? sect("By location", "Location", a.by_location) + sect("By property type", "Property type", a.by_property_type)
+    : `<div class="grid two"><div>${sect("By location", "Location", a.by_location)}</div><div>${sect("By property type", "Property type", a.by_property_type)}</div></div>`}
+    ${sect("By district (MMDA)", "District", a.by_district)}
+    <div class="${bases.length > 1 ? "grid two" : ""}">${bases.map((b, i) => `<div><h4>Trend — average ${esc(word(b))} (${esc(b)}, quarterly)</h4>
+      ${a.trend[b].length ? `<div class="chart-box"><canvas id="basis-chart-${i}"></canvas></div>` : '<p class="muted small">The trend appears once records have a valuation date.</p>'}</div>`).join("")}</div>`;
+  bases.forEach((b, i) => {
+    if (!a.trend[b].length) return;
+    lineChart(`basis-chart-${i}`, a.trend[b].map((p) => p.period),
+      [{ label: `${b} (${cur}${yr(b)})`, data: a.trend[b].map((p) => p.mean), borderColor: PALETTE[i], backgroundColor: PALETTE[i] + "33" }]);
+  });
 }
 
 const kpi = (label, value, sub) => `<div class="kpi"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;

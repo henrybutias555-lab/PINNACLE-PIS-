@@ -229,3 +229,10 @@ label.autofilled input, label.autofilled select, label.autofilled textarea { bor
 
 .kpi-basis .label { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
 .kpi-basis select { font-size: .8rem; padding: .15rem .3rem; max-width: 100%; }
+
+.basis-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.basis-head h3 { margin: 0; }
+.basis-choose { display: flex; align-items: center; gap: .4rem; font-weight: 600; }
+.basis-choose select { min-width: 16rem; max-width: 100%; }
+.basis-panel h4 { margin: 1rem 0 .4rem; }
+details.card summary { cursor: pointer; }
