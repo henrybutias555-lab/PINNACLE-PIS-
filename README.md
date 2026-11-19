@@ -91,7 +91,7 @@ Set one API key to turn on AI extraction and commentary:
 
 | Provider | Key | Model setting (default) |
 |---|---|---|
-| Google Gemini | `GEMINI_API_KEY` (from Google AI Studio) | `PIS_GEMINI_MODEL` (`gemini-3.8-flash`; if retired, the start-up self-check picks an available model) |
+| Google Gemini | `GEMINI_API_KEY` (from Google AI Studio) | `PIS_GEMINI_MODEL` (`gemini-3.5-flash-lite`, fastest in testing; if retired or slow, the start-up self-check picks an available model) |
 | Anthropic Claude | `ANTHROPIC_API_KEY` | `PIS_CLAUDE_MODEL` (`claude-opus-5-5`) |
 
 If both keys are set, Gemini is used. Set `PIS_AI_PROVIDER=claude` (or `gemini`) to choose explicitly.
