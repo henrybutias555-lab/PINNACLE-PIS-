@@ -109,7 +109,9 @@ def _derive(rec: Record) -> None:
         rec.cost_items = tidy_cost_items(rec.cost_items) or None
         rate = adopted_rate(rec.cost_items or [])
         if rate:
-            rec.cost_per_sqm = rate        # the construction cost / m² follows the rates adopted
+            rec.cost_per_sqm = rate        # the main building's construction cost / m² follows its rates
+        from ..services.rules import external_works_rate
+        rec.external_works_rate = external_works_rate(rec.cost_items or [])
     if rec.tags:
         rec.tags = sorted({t.strip().lower() for t in rec.tags if t and t.strip()})
     if rec.property_type:

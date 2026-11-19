@@ -621,9 +621,11 @@ const VALUATION_TABS = [
     ["inspection_date", "Date of inspection", "date"], ["record_date", "Date of valuation", "date"],
     ["method", "Valuation method", "method"], ["capital_value", "Market value", "num"],
     ["forced_sale_value", "Forced sale value", "num"]],
-    [["currency", "Currency"], ["annual_rent", "Market rent (annual)", "num"], ["yield_pct", "Yield %", "num"],
+    [["cost_per_sqm", "Construction cost / m²: Main building", "num"],
+     ["external_works_rate", "Construction cost / m²: External works", "num"],
+     ["currency", "Currency"], ["annual_rent", "Market rent (annual)", "num"], ["yield_pct", "Yield %", "num"],
      ["value_per_sqm", "Value / m²", "num"], ["rent_per_sqm", "Rent / m² p.a.", "num"],
-     ["cost_per_sqm", "Construction cost / m² (rate adopted)", "num"],
+
      ["valuation_basis", "Capital / rental / both"], ["valuer", "Valuer identity", "wide"],
      ["property_valued", "Property valued (summary)", "text"]]],
   ["marketability", "6. Marketability", [["location_rating", "Location rating", "rating"],
@@ -639,7 +641,8 @@ const [P_TAB, L_TAB, I_TAB, , , , A_TAB, ATT_TAB] = VALUATION_TABS;
 const TABS_BY_CATEGORY = {
   valuation: VALUATION_TABS,
   cost: [P_TAB, L_TAB, I_TAB, ["cost", "Cost", [["purpose", "Purpose", "purpose"], ["record_date", "Date", "date"],
-    ["currency", "Currency"], ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Construction cost / m² (rate)", "num"],
+    ["currency", "Currency"], ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Construction cost / m²: Main building", "num"],
+    ["external_works_rate", "Construction cost / m²: External works", "num"],
     ["specification", "Specification"]]], A_TAB, ATT_TAB],
   housing: [L_TAB, ["housing", "Housing market", [["purpose", "Purpose", "purpose"], ["record_date", "Date", "date"],
     ["currency", "Currency"], ["property_type", "Property type", "ptype"], ["avg_price", "Average price", "num"],
@@ -737,6 +740,7 @@ function costRowHTML(c = {}) {
 }
 function costItemsEditorHTML(items) {
   return `<p class="sub-head">Rates adopted (cost approach) (<span class="cost-count">${items.length}</span>)</p>
+    <div class="cost-groups"></div>
     <div class="sheet-wrap comp-wrap"><table class="sheet cost-table"><thead><tr>${COST_FIELDS.map(([, l]) => `<th>${esc(l)}</th>`).join("")}<th></th></tr></thead>
     <tbody>${items.map(costRowHTML).join("")}</tbody></table></div>
     <button type="button" class="btn small cost-add">+ Add rate</button>
@@ -751,6 +755,24 @@ function readCostRows(el) {
     rows[m[1]][m[2]] = inp.dataset.kind === "num" ? toNum(inp.value) : inp.value.trim();
   });
   return Object.keys(rows).sort((a, b) => a - b).map((k) => rows[k]).filter((r) => r.rate || r.amount);
+}
+function groupRate(rows) {
+  rows = rows.filter((r) => r.rate);
+  if (!rows.length) return null;
+  if (rows.every((r) => r.area_sqm)) {
+    const area = rows.reduce((s, r) => s + r.area_sqm, 0);
+    return area ? Math.round((rows.reduce((s, r) => s + r.rate * r.area_sqm, 0) / area) * 100) / 100 : null;
+  }
+  return Math.round((rows.reduce((s, r) => s + r.rate, 0) / rows.length) * 100) / 100;
+}
+function costGroups(items) {
+  const rows = items.map((r) => ({ ...r, rate: r.rate || (r.amount && r.area_sqm ? r.amount / r.area_sqm : null),
+    amount: r.amount || (r.rate && r.area_sqm ? r.rate * r.area_sqm : null) }));
+  const pick = (part) => {
+    const g = rows.filter((r) => partOf(r.item, r.part) === part);
+    return { lines: g.length, rate: groupRate(g), area: g.reduce((s, r) => s + (r.area_sqm || 0), 0), amount: g.reduce((s, r) => s + (r.amount || 0), 0) };
+  };
+  return { main: pick("Main building"), external: pick("External works") };
 }
 function adoptedRate(items) {
   const rows = items.map((r) => ({ ...r, rate: r.rate || (r.amount && r.area_sqm ? r.amount / r.area_sqm : null) })).filter((r) => r.rate);
@@ -768,9 +790,19 @@ function initCostRows(el) {
   if (!tbody) return;
   const update = () => {
     $(".cost-count", el).textContent = $$("tr", tbody).length;
-    const rate = adoptedRate(readCostRows(el));
+    const items = readCostRows(el);
+    const rate = adoptedRate(items);
     const box = $("[name=cost_per_sqm]", el);
     if (box && rate) box.value = withCommas(rate);
+    const g = costGroups(items);
+    const ext = $("[name=external_works_rate]", el);
+    if (ext) ext.value = g.external.rate ? withCommas(g.external.rate) : "";
+    const cur = ($("[name=currency]", el)?.value || "GHS").toUpperCase();
+    const line = (label, x) => `<div class="cost-group"><span class="muted small">${label}</span>
+      <b>${x.rate ? `${cur} ${fmt(x.rate, 2)} / m²` : "—"}</b>
+      <span class="muted small">${x.lines} line${x.lines === 1 ? "" : "s"}${x.area ? ` · ${fmt(x.area, 2)} m²` : ""}${x.amount ? ` · ${cur} ${fmt(x.amount)}` : ""}</span></div>`;
+    const box2 = $(".cost-groups", el);
+    if (box2) box2.innerHTML = items.length ? line("1. Main building", g.main) + line("2. External works", g.external) : "";
   };
   $$("tr", tbody).forEach((tr) => {
     $(".cost-del", tr).onclick = () => { tr.remove(); update(); };
@@ -785,7 +817,7 @@ function initCostRows(el) {
       update();
     }));
   });
-  $(".cost-count", el).textContent = $$("tr", tbody).length;
+  update();
 }
 
 /* Comparables: an editable table (one row per comparable). */

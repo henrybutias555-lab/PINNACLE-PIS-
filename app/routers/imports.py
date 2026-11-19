@@ -25,10 +25,10 @@ from .records import apply_changes, record_from_payload
 router = APIRouter(prefix="/api/imports", tags=["imports"])
 
 MAX_ROWS = 5000
-EDITABLE = set(RecordIn.model_fields) - {"comparables", "cost_breakdown"}
+EDITABLE = set(RecordIn.model_fields) - {"comparables", "cost_breakdown", "cost_items"}
 DATE_FIELDS = {"record_date", "inspection_date"}
 NUMERIC = {"forced_sale_value", "size_sqm", "capital_value", "annual_rent", "yield_pct", "value_per_sqm", "rent_per_sqm", "total_cost",
-           "cost_per_sqm", "avg_price", "avg_monthly_rent", "affordability_ratio"}
+           "cost_per_sqm", "external_works_rate", "avg_price", "avg_monthly_rent", "affordability_ratio"}
 INTEGER = {"supply_units"}
 # Figures the system calculates: always recomputed from their inputs when the inputs are present,
 # so a stale value in an old export can never overwrite a fresh one.
