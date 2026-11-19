@@ -31,6 +31,22 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="viewer")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signed_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    ONLINE_WINDOW_S = 150   # an open PIS page checks in every minute
+
+    @property
+    def online(self) -> bool:
+        seen, out = _aware(self.last_seen_at), _aware(self.signed_out_at)
+        if seen is None or (out is not None and out >= seen):
+            return False
+        return (utcnow() - seen).total_seconds() <= self.ONLINE_WINDOW_S
+
+
+def _aware(d: datetime | None) -> datetime | None:
+    """SQLite gives back naive datetimes; they are stored as UTC."""
+    return d.replace(tzinfo=timezone.utc) if d is not None and d.tzinfo is None else d
 
 
 class Report(Base):

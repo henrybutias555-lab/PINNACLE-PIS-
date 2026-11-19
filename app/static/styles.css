@@ -249,3 +249,8 @@ select:has(option[value=""]:checked) { font-style: italic; color: #9aa3ab; }
 select option { font-style: normal; color: var(--text, #1f2933); }
 .ns-tag { display: none; font-size: .72rem; font-style: italic; color: #9aa3ab; }
 label.gap .ns-tag { display: block; }
+
+.presence { display: inline-flex; align-items: center; gap: .4rem; white-space: nowrap; }
+.dot { width: .6rem; height: .6rem; border-radius: 50%; background: #9aa3ab; display: inline-block; flex: none; }
+.dot.on { background: #22a559; box-shadow: 0 0 0 3px rgba(34, 165, 89, .2); }
+#online-now { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin: 0 0 .75rem; }

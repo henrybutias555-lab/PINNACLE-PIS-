@@ -37,6 +37,15 @@ class UserOut(BaseModel):
     role: str
     is_active: bool
     created_at: datetime
+    last_seen_at: datetime | None = None
+    signed_out_at: datetime | None = None
+    online: bool = False
+
+    @field_validator("created_at", "last_seen_at", "signed_out_at", mode="after")
+    @classmethod
+    def _utc(cls, v):
+        from datetime import timezone
+        return v.replace(tzinfo=timezone.utc) if v is not None and v.tzinfo is None else v
 
 
 class UserCreate(BaseModel):

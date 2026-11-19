@@ -1364,3 +1364,23 @@ def test_saved_coordinates_in_digital_address_fixed_on_startup(client, admin):
     assert _fix_gps_values() >= 1
     got = client.get(f"/api/records/{rid}", headers=admin).json()
     assert got["gps_address"] == "GA-183-8164" and got["gps_coordinates"] == "5.6396, -0.1676"
+
+
+def test_online_status(client, admin):
+    r = client.post("/api/users", headers=admin, json={"email": "presence@test.local", "password": "Password123",
+                                                         "role": "viewer"})
+    assert r.status_code in (201, 409)
+    users = {u["email"]: u for u in client.get("/api/users", headers=admin).json()}
+    assert users["presence@test.local"]["online"] is False and users["presence@test.local"]["last_seen_at"] is None
+    tok = client.post("/api/auth/login", json={"email": "presence@test.local", "password": "Password123"}).json()
+    h = {"Authorization": f"Bearer {tok['access_token']}"}
+    assert client.post("/api/auth/heartbeat", headers=h).status_code == 200
+    u = next(x for x in client.get("/api/users", headers=admin).json() if x["email"] == "presence@test.local")
+    assert u["online"] is True and u["last_seen_at"].endswith(("Z", "+00:00"))
+    assert client.post("/api/auth/logout", headers=h).status_code == 200
+    u = next(x for x in client.get("/api/users", headers=admin).json() if x["email"] == "presence@test.local")
+    assert u["online"] is False and u["signed_out_at"]
+    # signing in again makes them online again
+    tok = client.post("/api/auth/login", json={"email": "presence@test.local", "password": "Password123"}).json()
+    u = next(x for x in client.get("/api/users", headers=admin).json() if x["email"] == "presence@test.local")
+    assert u["online"] is True
