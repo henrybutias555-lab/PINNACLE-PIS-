@@ -1199,7 +1199,7 @@ def test_gemini_self_check(monkeypatch):
     monkeypatch.setattr(gemini, "_client", lambda: SimpleNamespace(models=FakeModels()))
     status = gemini.self_check()
     assert status["ok"] is True and status["model"] == "gemini-9.0-flash"
-    assert "switched to gemini-9.0-flash" in status["detail"] and "3,000,000" in status["detail"]
+    assert "chosen over gemini-old" in status["detail"] and "3,000,000" in status["detail"]
 
     class BadKey(FakeModels):
         def generate_content(self, model, contents, config):
