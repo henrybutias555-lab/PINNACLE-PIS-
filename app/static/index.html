@@ -45,12 +45,13 @@
       <!-- Dashboard -->
       <section data-page="dashboard" class="page">
         <header class="page-head"><h2>Dashboard</h2></header>
+        <div id="dash-warning" class="notice" hidden></div>
         <div id="kpis" class="kpis"></div>
         <div class="grid two">
           <div class="card"><h3>Records by location</h3><div id="dash-locations"></div></div>
           <div class="card"><h3>Recent reports</h3><div id="dash-reports"></div></div>
         </div>
-        <div class="card"><h3>Capital value per m² — quarterly trend (all areas)</h3><div class="chart-box"><canvas id="dash-chart"></canvas></div></div>
+        <div class="card"><h3>Value opinion per m² — quarterly trend (all areas)</h3><div class="chart-box"><canvas id="dash-chart"></canvas></div></div>
       </section>
 
       <!-- Upload & review -->
@@ -97,6 +98,7 @@
         <header class="page-head"><h2>Market &amp; Cost Intelligence</h2>
           <div class="actions"><button class="btn primary" id="intel-xlsx">Export analysis to Excel</button></div></header>
         <form id="intel-filters" class="card filters"></form>
+        <div id="intel-warning" class="notice" hidden></div>
         <div id="intel-metrics" class="kpis"></div>
         <div class="grid two">
           <div class="card">

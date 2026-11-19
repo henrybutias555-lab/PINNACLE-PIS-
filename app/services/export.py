@@ -331,7 +331,7 @@ def analysis_xlsx(*, scope: str, summary: dict, breakdown_rows: list[dict], grou
 
     # Cost vs value
     ws = book.sheet("Cost vs value", "Construction cost vs capital value (per m²)", f"Figures in {cur}" if cur else None)
-    start = book.table(ws, ["Period", "Capital value per m²", "Construction cost per m²", "Cost as % of value",
+    start = book.table(ws, ["Period", "Value opinion per m²", "Construction cost per m²", "Cost as % of value",
                             "Margin per m²"],
                        [[r["period"], r["value_per_sqm"], r["cost_per_sqm"], r["cost_to_value_pct"],
                          r["development_margin_per_sqm"]] for r in cross_rows],

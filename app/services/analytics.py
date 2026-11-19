@@ -8,10 +8,10 @@ from datetime import date
 from ..models import Record
 
 METRICS = {
-    "capital_value": ("valuation", "Capital value"),
-    "value_per_sqm": ("valuation", "Capital value per m²"),
-    "annual_rent": ("valuation", "Annual rent"),
-    "rent_per_sqm": ("valuation", "Annual rent per m²"),
+    "capital_value": ("valuation", "Value opinion"),
+    "value_per_sqm": ("valuation", "Value opinion per m²"),
+    "annual_rent": ("valuation", "Rental opinion (annual)"),
+    "rent_per_sqm": ("valuation", "Rental opinion per m² p.a."),
     "yield_pct": ("valuation", "Yield (%)"),
     "cost_per_sqm": ("cost", "Construction cost per m²"),
     "total_cost": ("cost", "Total construction cost"),
@@ -44,7 +44,27 @@ def dominant_currency(records: list[Record]) -> str | None:
     return counts.most_common(1)[0][0] if counts else None
 
 
+# A value opinion below this per m² (in cedis) is almost certainly a mis-read figure
+# (e.g. 2,300 instead of 2,300,000); such records are listed and left out of averages.
+MIN_VALUE_PER_SQM_GHS = 100
+MIN_VALUE_GHS = 10_000
+
+
+def suspect_values(records: list[Record]) -> list[Record]:
+    out = []
+    for r in records:
+        if r.category != "valuation" or (r.currency or "GHS") != "GHS" or not r.capital_value:
+            continue
+        if r.capital_value < MIN_VALUE_GHS or (r.value_per_sqm is not None and r.value_per_sqm < MIN_VALUE_PER_SQM_GHS):
+            out.append(r)
+    return out
+
+
 def summary(records: list[Record]) -> dict:
+    suspects = suspect_values(records)
+    suspect_ids = {r.id for r in suspects}
+    all_records = records
+    records = [r for r in records if r.id not in suspect_ids]
     currencies = Counter(r.currency for r in records if r.currency)
     currency = dominant_currency(records)
     # Monetary stats only mix records of one currency.
@@ -57,11 +77,14 @@ def summary(records: list[Record]) -> dict:
             metrics[metric] = {"label": label, **s}
     dates = sorted(r.record_date for r in records if r.record_date)
     return {
-        "record_count": len(records),
-        "by_category": dict(Counter(r.category for r in records)),
-        "by_property_type": dict(Counter((r.property_type or "unspecified") for r in records).most_common(10)),
-        "top_locations": dict(Counter((r.location or r.city or "unspecified") for r in records).most_common(10)),
-        "top_districts": dict(Counter((r.district or "unspecified") for r in records).most_common(10)),
+        "suspect_values": [{"id": r.id, "label": r.address or r.location or r.title or f"Record {r.id}",
+                            "capital_value": r.capital_value, "value_per_sqm": r.value_per_sqm,
+                            "size_sqm": r.size_sqm} for r in suspects],
+        "record_count": len(all_records),
+        "by_category": dict(Counter(r.category for r in all_records)),
+        "by_property_type": dict(Counter((r.property_type or "unspecified") for r in all_records).most_common(10)),
+        "top_locations": dict(Counter((r.location or r.city or "unspecified") for r in all_records).most_common(10)),
+        "top_districts": dict(Counter((r.district or "unspecified") for r in all_records).most_common(10)),
         "currency": currency,
         "other_currencies_excluded": {c: n for c, n in currencies.items() if c != currency},
         "date_range": [dates[0].isoformat(), dates[-1].isoformat()] if dates else None,
@@ -70,6 +93,8 @@ def summary(records: list[Record]) -> dict:
 
 
 def breakdown(records: list[Record], group_by: list[str]) -> list[dict]:
+    bad = {r.id for r in suspect_values(records)}
+    records = [r for r in records if r.id not in bad]
     currency = dominant_currency(records)
     groups: dict[tuple, list[Record]] = defaultdict(list)
     for r in records:
@@ -98,6 +123,8 @@ def _period(d: date, interval: str) -> str:
 
 
 def trend(records: list[Record], metric: str, interval: str = "quarter") -> list[dict]:
+    bad = {r.id for r in suspect_values(records)}
+    records = [r for r in records if r.id not in bad]
     currency = dominant_currency(records)
     pool = records if metric in RATIO_METRICS else [r for r in records if r.currency == currency]
     buckets: dict[str, list[float]] = defaultdict(list)
@@ -196,10 +223,10 @@ def template_commentary(stats: dict, trends: dict, scope: str) -> str:
     val_bits = []
     if "value_per_sqm" in m:
         s = m["value_per_sqm"]
-        val_bits.append(f"capital values averaged {_fmt(s['mean'], cur)} per m² (range {_fmt(s['min'], cur)} to {_fmt(s['max'], cur)}, {s['count']} observations)")
+        val_bits.append(f"value opinions averaged {_fmt(s['mean'], cur)} per m² (range {_fmt(s['min'], cur)} to {_fmt(s['max'], cur)}, {s['count']} observations)")
     elif "capital_value" in m:
         s = m["capital_value"]
-        val_bits.append(f"adopted capital values averaged {_fmt(s['mean'], cur)} (median {_fmt(s['median'], cur)})")
+        val_bits.append(f"value opinions averaged {_fmt(s['mean'], cur)} (median {_fmt(s['median'], cur)})")
     if "annual_rent" in m:
         val_bits.append(f"annual rents averaged {_fmt(m['annual_rent']['mean'], cur)}")
     if "yield_pct" in m:
