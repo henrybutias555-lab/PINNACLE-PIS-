@@ -308,10 +308,14 @@ def property_tags(text: str) -> list[str]:
 
 
 def _labelled(text: str, labels: list[str]) -> str | None:
+    """Value after 'Label: value', 'Label - value' or a two-column table row 'Label | value'."""
     for label in labels:
-        m = re.search(rf"(?im)^\s*{label}\s*[:\-–]\s*(.+)$", text)
-        if m:
-            return m.group(1).strip()[:300]
+        for m in re.finditer(rf"(?im)^\s*(?:\d{{1,2}}(?:\.\d{{1,2}})*\.?\s+)?{label}\s*(?:[:\-–]|\|)\s*(.+)$", text):
+            value = m.group(1).strip()
+            if value.count("|") >= 1:   # a multi-column table row, not "label | value"
+                continue
+            if value:
+                return value[:300]
     return None
 
 
@@ -421,6 +425,12 @@ def _european(window: str):
 def find_date(text: str) -> date | None:
     labelled = _labelled(text, ["date of valuation", "valuation date", "report date", "date of inspection", "date"])
     candidates = [labelled] if labelled else []
+    # "the valuation is as at 1st August, 2023" / "Market Value ... as at ..." beats the first date in the report
+    m = re.search(r"(?i)(?:valuation (?:is|was|has been) (?:made |undertaken |carried out )?(?:as at|as of|on)|"
+                  r"date of valuation(?: is| was)?|\bas at|\bas of|effective date(?: of valuation)?(?: is)?)"
+                  r"\s*:?\s*(?:the\s+)?([^.;\n]{4,40})", text)
+    if m and not labelled:
+        candidates.insert(0, m.group(1))
     candidates.append(text[:4000])
     for chunk in candidates:
         if not chunk:
@@ -505,8 +515,10 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
         record["annual_rent"], _ = _labelled_amount(text, ["annual rent", "rental value per annum", "rent per annum", "market rent", "rental value"])
         m = re.search(r"(?i)(?:yield|capitali[sz]ation rate|cap rate)[^0-9\n]{0,30}([0-9]+(?:\.[0-9]+)?)\s*%", text)
         record["yield_pct"] = float(m.group(1)) if m else None
-        m = re.search(r"(?i)(comparison|comparative|investment|income|residual|cost|depreciated replacement cost|profits?)\s+(?:method|approach)", text)
-        record["method"] = m.group(0).strip().title() if m else None
+        from .reader import standard_methods
+        record["method"] = standard_methods(_labelled(text, ["method of valuation", "valuation method", "method"]) or "") \
+            or standard_methods(" ".join(s for s in re.split(r"(?<=[.])\s+", text) if re.search(
+                r"(?i)adopt|method|approach|we have used|employed|applied", s))[:3000])
         low = text.lower()
         if record["capital_value"] and record["annual_rent"]:
             record["valuation_basis"] = "both"
@@ -564,6 +576,20 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
 
     if cur:
         record["currency"] = cur
+    # Read the rest of the report (sections, sentences, signature) for anything still blank.
+    try:
+        from types import SimpleNamespace
+
+        from ..routers.records import normalise_rating
+        from . import reader
+        helpers = SimpleNamespace(find_date=find_date, money_in=_money_in, money_in_labelled=_labelled_amount,
+                                  normalise_basis=normalise_basis, normalise_rating=normalise_rating,
+                                  property_tags=property_tags, find_coordinates=find_coordinates)
+        for field, value in reader.read_report(text, record, helpers).items():
+            record[field] = value
+    except Exception:  # the extra reading must never stop an upload
+        import logging
+        logging.getLogger(__name__).exception("report reader failed")
     size = record.get("size_sqm")
     if size:
         if record.get("capital_value") and not record.get("value_per_sqm"):

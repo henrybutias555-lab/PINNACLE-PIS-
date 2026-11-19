@@ -597,7 +597,7 @@ Special assumptions: Building completed as per approved plans
 Valuer: Kofi Mensah, MGhIS, Pinnacle Estate Surveyors"""
     r = rules.extract(text)["records"][0]
     assert r["gps_address"] == "GA-183-8164"
-    assert r["client"] == "Example Bank Ltd" and r["purpose"] == "Mortgage"
+    assert r["client"] == "Example Bank Ltd" and r["purpose"] == "Mortgage / loan security"
     assert r["property_valued"].startswith("A 5-bedroom mansion")
     assert r["basis_of_value"] == "Market Value"  # one basis; the forced sale value is a separate figure
     assert "Special: Building completed" in r["assumptions"]
@@ -894,7 +894,7 @@ def test_comparables_from_word_table_and_excel(client, admin):
                       files=[("files", ("comps.docx", _comparables_docx(), "application/octet-stream"))]).json()[0]
     rec = rep["draft"]["records"][0]
     assert rec["basis_of_value"] == "Market Value"          # not "Market Value VALUATION OPINION"
-    assert rec["purpose"] == "Mortgage" and rec["capital_value"] == 2300000
+    assert rec["purpose"] == "Mortgage / loan security" and rec["capital_value"] == 2300000
     comps = rec["comparables"]
     assert [c["address"] for c in comps] == ["Plot 5, East Legon Hills", "Santeo Estate", "Oyarifa"]
     assert comps[0] == {"address": "Plot 5, East Legon Hills", "property_type": "4-bedroom house",
@@ -911,11 +911,11 @@ def test_comparables_from_word_table_and_excel(client, admin):
     ev = list(wb["Evidence"].iter_rows(min_row=4, values_only=True))
     assert "Purpose of valuation" in ev[0] and "Basis of value" in ev[0]
     row = dict(zip(ev[0], ev[1]))
-    assert (row["Purpose of valuation"], row["Basis of value"]) == ("Mortgage", "Market Value")
+    assert (row["Purpose of valuation"], row["Basis of value"]) == ("Mortgage / loan security", "Market Value")
     cs = list(wb["Comparables"].iter_rows(min_row=4, values_only=True))
     head, body = cs[0], [dict(zip(cs[0], r)) for r in cs[1:]]
     assert len(body) == 3
-    assert body[0]["Purpose of valuation"] == "Mortgage" and body[0]["Basis of value"] == "Market Value"
+    assert body[0]["Purpose of valuation"] == "Mortgage / loan security" and body[0]["Basis of value"] == "Market Value"
     assert body[0]["Comparable address / location"] == "Plot 5, East Legon Hills" and body[0]["Price"] == 2100000
 
 
@@ -1081,3 +1081,90 @@ def test_form_save_recalculates_rates(client, admin):
     assert rec["value_per_sqm"] == 11135.32
     body = dict(body, capital_value=2300000, value_per_sqm=12000)   # a figure the user typed on purpose
     assert client.patch(f"/api/records/{rid}", headers=admin, json=body).json()["value_per_sqm"] == 12000
+
+
+def _build_report(script: str, tmp_path):
+    import runpy
+    import sys as _sys
+    out = tmp_path / (script + ".docx")
+    argv = _sys.argv
+    try:
+        _sys.argv = ["x", str(out)]
+        runpy.run_path(str(__import__("pathlib").Path(__file__).parent / "fixtures" / f"{script}.py"), run_name="__main__")
+    finally:
+        _sys.argv = argv
+    return out
+
+
+def test_reads_a_narrative_report_without_ai(tmp_path):
+    """A report written in numbered sections and sentences (no 'Label: value' lines)."""
+    from app.services import gaps, rules
+    from app.services.text_extract import extract_text
+
+    text = extract_text(_build_report("make_santeo_report", tmp_path), "docx")
+    rec = rules.extract(text)["records"][0]
+    rec.update({k: v for k, (v, _) in gaps.infer(rec, text).items()})
+    expect = {
+        "purpose": "Mortgage / loan security", "client": "GCB Bank PLC", "basis_of_value": "Market Value",
+        "inspection_date": "2023-07-19", "record_date": "2023-08-01", "location": "Santeo",
+        "district": "La Nkwantanang-Madina Municipal", "city": "Accra", "region": "Greater Accra",
+        "gps_address": "GA-183-8164", "gps_coordinates": "5.639611, -0.167528", "land_size": "0.10 acre (404.69 sq m)",
+        "tenure": "Leasehold", "unexpired_term": "91 years (calculated: 99-year term from 2015)",
+        "source_of_title": "Land Title Certificate No. GA 45678 Vol. 12 Folio 34", "owner": "Miss Leticia Otoo",
+        "ownership": "Private (individual)", "building_type": "two-storey detached house", "size_sqm": 206.55,
+        "state_of_repair": "Good", "method": "Sales Comparison Approach & Cost Approach (DRC)",
+        "capital_value": 2300000, "forced_sale_value": 1610000, "valuer": "Audrey Darkwah, BSc, MGhIS",
+        "property_type": "residential",
+    }
+    wrong = {k: (rec.get(k), v) for k, v in expect.items() if rec.get(k) != v}
+    assert not wrong, wrong
+    for k, needle in {"accommodation": "four bedrooms", "services": "ECG electricity", "construction_details": "sandcrete",
+                      "planning_status": "building permit", "use_occupancy": "owner-occupied",
+                      "accessibility": "tarred road", "inspection_limitation": "No structural survey",
+                      "purpose_restriction": "sole use", "legal_disclaimer": "no responsibility",
+                      "assumptions": "assumed"}.items():
+        assert needle.lower() in (rec.get(k) or "").lower(), (k, rec.get(k))
+    assert len(rec["comparables"]) == 3
+
+
+def test_reads_a_differently_written_report(tmp_path):
+    from app.services import gaps, rules
+    from app.services.text_extract import extract_text
+
+    text = extract_text(_build_report("make_kumasi_report", tmp_path), "docx")
+    rec = rules.extract(text)["records"][0]
+    rec.update({k: v for k, (v, _) in gaps.infer(rec, text).items()})
+    expect = {"client": "Ecobank Ghana Limited", "purpose": "Mortgage / loan security", "record_date": "2024-03-15",
+              "gps_address": "AK-039-5028", "district": "Kumasi Metropolitan", "region": "Ashanti", "city": "Kumasi",
+              "tenure": "Leasehold", "unexpired_term": "31 years (calculated: 50-year term from 2005)",
+              "land_size": "0.35 acres", "owner": "Adom Properties Limited", "building_type": "three-storey office block",
+              "source_of_title": "Indenture dated 12th May 2005", "method": "Investment / Income Approach",
+              "capital_value": 6500000, "forced_sale_value": 4550000, "valuer": "Kwame Mensah, FGhIS, MRICS",
+              "property_type": "commercial"}
+    wrong = {k: (rec.get(k), v) for k, v in expect.items() if rec.get(k) != v}
+    assert not wrong, wrong
+
+
+def test_pdf_layout_tables_and_wrapped_sentences():
+    from app.services.text_extract import tidy_pdf_text
+
+    raw = """16.0 VALUATION
+
+Having regard to the foregoing, we are of the opinion that the Market Value of the leasehold
+interest in the property as at 1st August, 2023 is GH¢2,300,000.00 (Two Million, Three Hundred
+Thousand Ghana Cedis).
+
+No.        Location              Description          Date              Price (GH¢)
+
+1          East Legon Hills      4-bedroom            March 2023        2,100,000
+                                 house
+
+2          Santeo                5-bedroom            June 2023         2,450,000
+                                 house
+"""
+    out = tidy_pdf_text(raw).splitlines()
+    assert out[0] == "16.0 VALUATION"
+    assert out[1].startswith("Having regard") and out[1].endswith("Ghana Cedis).")
+    assert out[2] == "No. | Location | Description | Date | Price (GH¢)"
+    assert out[3] == "1 | East Legon Hills | 4-bedroom house | March 2023 | 2,100,000"
+    assert out[4] == "2 | Santeo | 5-bedroom house | June 2023 | 2,450,000"
