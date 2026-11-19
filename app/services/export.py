@@ -306,7 +306,7 @@ def analysis_xlsx(*, scope: str, summary: dict, breakdown_rows: list[dict], grou
     # By area & type
     ws = book.sheet("By area & type", "Averages by " + " and ".join(g.replace("_", " ") for g in group_by),
                     f"Figures in {cur}" if cur else None)
-    cols = [("value_per_sqm", "Value per m²"), ("capital_value", "Capital value"), ("annual_rent", "Annual rent"),
+    cols = [("capital_value", "Valuation opinion"), ("annual_rent", "Annual rent"),
             ("yield_pct", "Yield %"), ("cost_per_sqm", "Cost per m²"), ("avg_price", "Avg house price"),
             ("avg_monthly_rent", "Avg monthly rent")]
     book.table(ws, [g.replace("_", " ").title() for g in group_by] + ["Records"] + [l for _, l in cols],
@@ -338,15 +338,16 @@ def analysis_xlsx(*, scope: str, summary: dict, breakdown_rows: list[dict], grou
     ws.freeze_panes = None
 
     # Cost vs value
-    ws = book.sheet("Cost vs value", "Construction cost vs capital value (per m²)", f"Figures in {cur}" if cur else None)
-    start = book.table(ws, ["Period", "Valuation opinion per m²", "Construction cost per m²", "Cost as % of value",
-                            "Margin per m²"],
-                       [[r["period"], r["value_per_sqm"], r["cost_per_sqm"], r["cost_to_value_pct"],
-                         r["development_margin_per_sqm"]] for r in cross_rows],
-                       [None, "#,##0", "#,##0", "0.0", "#,##0"], [14, 22, 24, 18, 16])
+    ws = book.sheet("Construction cost", "Construction cost per m²: main building and external works",
+                    f"Figures in {cur}" if cur else None)
+    start = book.table(ws, ["Period", "Main building per m²", "External works per m²", "Main building records",
+                            "External works records"],
+                       [[r["period"], r["cost_per_sqm"], r["external_works_rate"], r["cost_count"], r["external_count"]]
+                        for r in cross_rows],
+                       [None, "#,##0", "#,##0", "0", "0"], [14, 22, 22, 22, 22])
     if len(cross_rows) >= 1:
         chart = BarChart()
-        chart.title, chart.height, chart.width = "Value vs construction cost per m²", 8, 16
+        chart.title, chart.height, chart.width = "Construction cost per m²", 8, 16
         chart.add_data(Reference(ws, min_col=2, max_col=3, min_row=start, max_row=start + len(cross_rows)),
                        titles_from_data=True)
         chart.set_categories(Reference(ws, min_col=1, min_row=start + 1, max_row=start + len(cross_rows)))

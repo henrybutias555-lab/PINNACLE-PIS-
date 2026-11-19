@@ -124,16 +124,18 @@ def test_analytics(client, admin):
     s = client.get("/api/analytics/summary?location=Cantonments", headers=admin).json()
     assert s["record_count"] == 6
     assert s["metrics"]["cost_per_sqm"]["mean"] == 6500
-    assert s["metrics"]["value_per_sqm"]["count"] == 3
+    assert "value_per_sqm" not in s["metrics"]          # per-m² valuation opinions are not averaged
 
-    t = client.get("/api/analytics/trends?location=Cantonments&metric=value_per_sqm&interval=year", headers=admin).json()
+    t = client.get("/api/analytics/trends?location=Cantonments&metric=capital_value&interval=year", headers=admin).json()
     assert [p["period"] for p in t["series"]] == ["2023", "2024"]
-    assert t["series"][0]["mean"] == 10000
+
+    by = client.get("/api/analytics/trends-by?location=Cantonments&metric=capital_value&group=property_type&interval=year",
+                    headers=admin).json()
+    assert {line["name"] for line in by["lines"]} <= {"residential", "commercial"} and by["lines"]
 
     c = client.get("/api/analytics/cross?location=Cantonments&interval=year", headers=admin).json()
     y2023 = next(r for r in c["rows"] if r["period"] == "2023")
-    assert y2023["cost_per_sqm"] == 6000 and y2023["value_per_sqm"] == 10000
-    assert y2023["cost_to_value_pct"] == 60.0
+    assert y2023["cost_per_sqm"] == 6000 and "value_per_sqm" not in y2023
 
     b = client.get("/api/analytics/breakdown?location=Cantonments&group_by=property_type", headers=admin).json()
     assert {r["property_type"] for r in b["rows"]} == {"residential", "commercial"}
@@ -424,7 +426,7 @@ def test_analysis_excel_export(client, admin):
     assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument.spreadsheetml")
     wb = openpyxl.load_workbook(_io.BytesIO(r.content))
-    assert wb.sheetnames == ["Summary", "By area & type", "Trends", "Cost vs value", "Records"]
+    assert wb.sheetnames == ["Summary", "By area & type", "Trends", "Construction cost", "Records"]
     summary = [row for row in wb["Summary"].iter_rows(values_only=True)]
     assert ("Records analysed", 6) in [tuple(x[:2]) for x in summary]
     cps = next(x for x in summary if x[0] == "Construction cost per m²")
@@ -432,7 +434,7 @@ def test_analysis_excel_export(client, admin):
     assert any(x[0] == "Draft text." for x in summary)
     types_ = {row[0] for row in wb["By area & type"].iter_rows(min_row=4, values_only=True) if row[0]}
     assert {"residential", "commercial"} <= types_
-    assert len(wb["Trends"]._charts) >= 1 and len(wb["Cost vs value"]._charts) == 1
+    assert len(wb["Trends"]._charts) >= 1 and len(wb["Construction cost"]._charts) == 1
     assert wb["Records"].max_row == 7  # header + 6 records
     assert wb["Records"].auto_filter.ref  # filter arrows on
 
@@ -1066,7 +1068,6 @@ def test_dashboard_leaves_out_misread_values(client, admin):
     s = client.get("/api/analytics/summary?location=Zz Test Area", headers=admin).json()
     assert [x["id"] for x in s["suspect_values"]] == [bad]
     assert s["metrics"]["capital_value"]["mean"] == 2000000          # the 2,300 is not averaged in
-    assert s["metrics"]["value_per_sqm"]["mean"] == 10000
     assert s["metrics"]["capital_value"]["label"] == "Valuation opinion"
     client.patch(f"/api/records/{bad}", headers=admin, json={"capital_value": 2300000})  # corrected
     s = client.get("/api/analytics/summary?location=Zz Test Area", headers=admin).json()
