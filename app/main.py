@@ -151,6 +151,22 @@ def _fix_research_docs() -> int:
     return changed
 
 
+def _fix_land_areas() -> int:
+    """Land sizes saved as text ('0.25 acres', '100ft x 70ft') -> land_area_sqm for the land value trends."""
+    from .models import Record
+    from .services.land import land_area_sqm
+
+    changed = 0
+    with SessionLocal() as db:
+        for rec in db.scalars(select(Record).where(Record.land_size.is_not(None), Record.land_area_sqm.is_(None))):
+            area = land_area_sqm(rec.land_size)
+            if area:
+                rec.land_area_sqm = area
+                changed += 1
+        db.commit()
+    return changed
+
+
 def _safe_self_check(module) -> None:
     try:
         module.self_check()
@@ -172,7 +188,7 @@ def init_db() -> None:
             log.info("Database upgraded: added column %s", column)
         for column in widen_columns(engine):
             log.info("Database upgraded: widened column %s", column)
-        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values() + _fix_purpose_values() + _fix_rating_values() + _fix_research_docs()
+        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values() + _fix_purpose_values() + _fix_rating_values() + _fix_research_docs() + _fix_land_areas()
         if fixed:
             log.warning("Corrected %d MMDA value(s) that were not assemblies", fixed)
         with SessionLocal() as db:

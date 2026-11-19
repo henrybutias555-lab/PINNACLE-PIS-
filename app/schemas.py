@@ -151,6 +151,8 @@ class RecordBase(BaseModel):
     highest_best_use: str | None = None
     gps_coordinates: str | None = None
     land_size: str | None = None
+    land_area_sqm: float | None = None
+    land_value: float | None = None
     accessibility: str | None = None
     building_type: str | None = None
     accommodation: str | None = None

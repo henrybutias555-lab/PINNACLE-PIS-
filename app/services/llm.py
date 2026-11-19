@@ -89,6 +89,7 @@ _RECORD_PROPS = {
     "highest_best_use": {"type": ["string", "null"], "description": 'Highest and best use'},
     "gps_coordinates": {"type": ["string", "null"], "description": "Latitude, longitude, e.g. '5.6396, -0.1676'"},
     "land_size": {"type": ["string", "null"], "description": "Land / plot size as stated, e.g. '0.25 acres (1,011.7 m²)'"},
+    "land_value": {"type": ["number", "null"], "description": "The value of the land alone when the report states it, e.g. 'Add: Land value GH¢ 450,000' in a cost approach; for a land valuation, the land's value"},
     "accessibility": {"type": ["string", "null"], "description": 'Road access and accessibility'},
     "building_type": {"type": ["string", "null"], "description": "e.g. 'Two-storey detached house'"},
     "accommodation": {"type": ["string", "null"], "description": 'Rooms and accommodation'},

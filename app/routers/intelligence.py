@@ -45,6 +45,25 @@ def basis_analysis(
     return data
 
 
+@router.get("/analytics/land")
+def land_trends(
+    f: RecordFilters = Depends(filters_dep),
+    districts: str = Query("", description="Comma list of MMDAs; empty = all MMDAs together"),
+    metric: str = Query("per_acre", pattern="^(per_acre|per_sqm|total)$"),
+    interval: str = Query("quarter", pattern="^(month|quarter|year)$"),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Average land values over time by MMDA (land valuations, and land values stated in other reports)."""
+    from ..services.land import land_trend
+
+    wanted = [d.strip() for d in districts.split(",") if d.strip()][:4]
+    f.district = None          # the MMDAs are chosen here
+    data = land_trend(_records(db, f), wanted, metric, interval)
+    data["scope"] = f.describe()
+    return data
+
+
 @router.get("/analytics/breakdown")
 def breakdown(
     f: RecordFilters = Depends(filters_dep),
