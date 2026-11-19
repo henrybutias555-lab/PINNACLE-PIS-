@@ -25,6 +25,7 @@ class RecordFilters:
     city: str | None = None
     property_type: str | None = None
     purpose: str | None = None
+    basis_of_value: str | None = None
     tag: str | None = None
     currency: str | None = None
     date_from: date | None = None
@@ -45,6 +46,8 @@ class RecordFilters:
             parts.append(f"{'' if self.location else 'in '}{self.district}".strip())
         if self.city:
             parts.append(f"{'' if self.location else 'in '}{self.city}".strip())
+        if self.basis_of_value:
+            parts.append(f"basis of value: {self.basis_of_value}")
         if self.purpose:
             parts.append(f"for {self.purpose} purposes")
         if self.date_from or self.date_to:
@@ -60,6 +63,7 @@ def filters_dep(
     city: str | None = None,
     property_type: str | None = None,
     purpose: str | None = None,
+    basis_of_value: str | None = Query(None, description="e.g. Market Value"),
     tag: str | None = None,
     currency: str | None = None,
     date_from: date | None = None,
@@ -69,7 +73,8 @@ def filters_dep(
     report_id: int | None = None,
 ) -> RecordFilters:
     return RecordFilters(q=q, category=category, location=location, district=district, city=city,
-                         property_type=property_type, purpose=purpose, tag=tag, currency=currency,
+                         property_type=property_type, purpose=purpose, basis_of_value=basis_of_value, tag=tag,
+                         currency=currency,
                          date_from=date_from, date_to=date_to, min_amount=min_amount, max_amount=max_amount,
                          report_id=report_id)
 
@@ -91,6 +96,14 @@ def apply_filters(stmt: Select, f: RecordFilters) -> Select:
         stmt = stmt.where(_ilike(Record.property_type, f.property_type))
     if f.purpose:
         stmt = stmt.where(_ilike(Record.purpose, f.purpose))
+    if f.basis_of_value:
+        if f.basis_of_value == "Forced Sale Value":
+            # FSV is usually reported alongside a market value
+            stmt = stmt.where(or_(Record.basis_of_value == "Forced Sale Value", Record.forced_sale_value.is_not(None)))
+        elif f.basis_of_value == "Not stated":
+            stmt = stmt.where(Record.basis_of_value.is_(None))
+        else:
+            stmt = stmt.where(Record.basis_of_value == f.basis_of_value)
     if f.currency:
         stmt = stmt.where(Record.currency == f.currency.upper())
     if f.date_from:

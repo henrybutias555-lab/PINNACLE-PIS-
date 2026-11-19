@@ -47,6 +47,8 @@
         <header class="page-head"><h2>Dashboard</h2></header>
         <div id="dash-warning" class="notice" hidden></div>
         <div id="kpis" class="kpis"></div>
+        <div class="card"><h3>Value opinions by basis of value</h3><p class="muted small">Market value, rent, forced sale,
+          fair, synergistic, marriage value … each averaged separately.</p><div id="dash-bases"></div></div>
         <div class="grid two">
           <div class="card"><h3>Records by location</h3><div id="dash-locations"></div></div>
           <div class="card"><h3>Recent reports</h3><div id="dash-reports"></div></div>
@@ -100,6 +102,7 @@
         <form id="intel-filters" class="card filters"></form>
         <div id="intel-warning" class="notice" hidden></div>
         <div id="intel-metrics" class="kpis"></div>
+        <div class="card"><h3>Value opinions by basis of value</h3><div id="intel-bases"></div></div>
         <div class="grid two">
           <div class="card">
             <div class="row between"><h3>Trend</h3>
@@ -114,7 +117,7 @@
           </div>
         </div>
         <div class="card"><div class="row between"><h3>Averages by area and property type</h3><select id="group-by">
-          <option value="location,property_type">Location × type</option><option value="location">Location</option><option value="district">District (MMDA)</option><option value="city">City</option><option value="property_type">Property type</option><option value="purpose">Purpose</option></select></div>
+          <option value="location,property_type">Location × type</option><option value="location">Location</option><option value="district">District (MMDA)</option><option value="city">City</option><option value="property_type">Property type</option><option value="purpose">Purpose</option><option value="basis_of_value">Basis of value</option></select></div>
           <div id="breakdown-table"></div></div>
         <div class="card">
           <div class="row between"><h3>Suggested market commentary</h3>

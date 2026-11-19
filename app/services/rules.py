@@ -92,8 +92,19 @@ def _currency_code(sym: str) -> str:
 
 GPS_RE = re.compile(r"\b([A-Z]{2})[-\s](\d{3,4})[-\s](\d{4})\b")
 
-BASES_OF_VALUE = ["Market Value", "Market Rent", "Forced Sale Value", "Fair Value", "Investment Value",
-                  "Reinstatement Cost", "Depreciated Replacement Cost", "Mortgage Lending Value"]
+# Bases of value: IVS (Market Value, Market Rent, Equitable Value, Investment Value / Worth,
+# Synergistic Value, Liquidation Value) and others used in practice.
+BASES_OF_VALUE = ['Market Value', 'Market Rent', 'Fair Value', 'Equitable Value', 'Investment Value', 'Synergistic Value', 'Marriage Value', 'Special Value', 'Liquidation Value', 'Forced Sale Value', 'Reinstatement Cost', 'Depreciated Replacement Cost', 'Mortgage Lending Value']
+# other names -> standard basis
+BASIS_ALIASES = {
+    "open market value": "Market Value", "fair market value": "Market Value", "omv": "Market Value",
+    "market rental value": "Market Rent", "open market rent": "Market Rent", "rental value": "Market Rent",
+    "worth": "Investment Value", "investment value (worth)": "Investment Value",
+    "equitable value": "Equitable Value", "synergy value": "Synergistic Value", "merger value": "Synergistic Value",
+    "forced sale": "Forced Sale Value", "fsv": "Forced Sale Value", "quick sale value": "Forced Sale Value",
+    "distress value": "Forced Sale Value", "liquidation": "Liquidation Value", "insurance value": "Reinstatement Cost",
+    "reinstatement value": "Reinstatement Cost", "drc": "Depreciated Replacement Cost",
+}
 
 
 SECTION_LABELS = {
@@ -235,11 +246,17 @@ def find_comparables(text: str, limit: int = 30) -> list[dict]:
 
 
 def normalise_basis(value: str | None) -> str | None:
-    """One standard basis of value: 'Market Value VALUATION OPINION' -> 'Market Value'."""
+    """One standard basis of value: 'Market Value VALUATION OPINION' -> 'Market Value',
+    'Worth' -> 'Investment Value'."""
     if not value or not str(value).strip():
         return None
     low = str(value).lower()
     hits = sorted((low.find(b.lower()), b) for b in BASES_OF_VALUE if b.lower() in low)
+    for alias, basis in BASIS_ALIASES.items():
+        m = re.search(rf"(?<![a-z]){re.escape(alias)}(?![a-z])", low)
+        if m and not any(p <= m.start() < p + len(b) for p, b in hits):
+            hits.append((m.start(), basis))
+    hits.sort()
     primary = [b for _, b in hits if b != "Forced Sale Value"]
     if primary:
         return primary[0]

@@ -208,6 +208,7 @@ function filterFormHTML(withSearch = true) {
     <label>MMDA<select name="district">${mmdaOptions("", "All MMDAs")}</select></label>
     <label>City<input name="city" list="dl-cities"></label>
     <label>Property type<input name="property_type" list="dl-types"></label>
+    <label>Basis of value<select name="basis_of_value"><option value="">All bases</option>${BASES.map((b) => `<option>${esc(b)}</option>`).join("")}<option>Not stated</option></select></label>
     <label>Purpose<input name="purpose"></label>
     <label>From<input type="date" name="date_from"></label>
     <label>To<input type="date" name="date_to"></label>
@@ -227,13 +228,14 @@ async function loadDashboard() {
   const pending = reports.filter((r) => r.status === "extracted").length;
   $("#kpis").innerHTML = [
     kpi("Records in database", fmt(s.record_count), Object.entries(s.by_category).map(([k, v]) => `${v} ${k}`).join(" · ") || "No data yet"),
-    kpi("Average value opinion", m.capital_value ? `${cur} ${fmt(m.capital_value.mean)}` : "—", m.capital_value ? `market value · ${m.capital_value.count} valuation${m.capital_value.count === 1 ? "" : "s"}` : "No valuations yet"),
-    kpi("Average value opinion / m²", m.value_per_sqm ? `${cur} ${fmt(m.value_per_sqm.mean)}` : "—", m.value_per_sqm ? `${m.value_per_sqm.count} with floor area` : "needs floor area"),
-    ...(m.annual_rent ? [kpi("Average rental opinion", `${cur} ${fmt(m.annual_rent.mean)}`, `per year · ${m.annual_rent.count} valuation${m.annual_rent.count === 1 ? "" : "s"}`)] : []),
+    basisKpiHTML(),
     kpi("Avg construction cost / m²", m.cost_per_sqm ? `${cur} ${fmt(m.cost_per_sqm.mean)}` : "—", m.cost_per_sqm ? `${m.cost_per_sqm.count} records` : ""),
     kpi("Avg yield", m.yield_pct ? `${fmt(m.yield_pct.mean, 2)}%` : "—", m.yield_pct ? `${m.yield_pct.count} records` : ""),
     kpi("Reports awaiting review", fmt(pending), "in the latest uploads"),
   ].join("");
+  state.byBasis = { rows: s.by_basis || [], cur };
+  wireBasisKpi();
+  renderBasisTable($("#dash-bases"), s.by_basis || [], cur);
   const locs = Object.entries(s.top_locations);
   $("#dash-locations").innerHTML = locs.length ? table(["Location", "Records"], locs.map(([k, v]) => [esc(k), { v: fmt(v), num: true }])) : '<p class="muted">No records yet.</p>';
   $("#dash-reports").innerHTML = reports.length ? table(["Report", "Type", "Status"], reports.map((r) => [esc(r.title || r.filename), esc(r.report_type || "—"), statusPill(r.status)])) : '<p class="muted">No reports uploaded yet.</p>';
@@ -263,6 +265,42 @@ function checkValueOpinion(el) {
   if (v < 10000 || (perSqm !== null && perSqm < 100)) {
     label.insertAdjacentHTML("beforeend", `<span class="value-warn">⚠ ${perSqm !== null ? `This works out to GH¢${fmt(perSqm, 2)} per m², which` : "This"} looks too low. Check the figure (e.g. ${fmt(v)} vs ${fmt(v * 1000)}).</span>`);
   }
+}
+
+/* "Average <basis of value ▾>": the average opinion of value for one basis at a time. */
+function savedBasis() { try { return localStorage.getItem("pis_basis") || "Market Value"; } catch (_) { return "Market Value"; } }
+function basisKpiHTML() {
+  return `<div class="kpi kpi-basis"><div class="label">Average <select id="basis-pick" aria-label="Basis of value"></select></div>
+    <div class="value" id="basis-value">—</div><div class="sub" id="basis-sub"></div></div>`;
+}
+function wireBasisKpi() {
+  const pick = $("#basis-pick");
+  if (!pick) return;
+  const rows = state.byBasis.rows, cur = state.byBasis.cur;
+  const have = new Set(rows.map((r) => r.basis));
+  const names = [...BASES.filter((b) => have.has(b)), ...[...have].filter((b) => !BASES.includes(b)),
+    ...BASES.filter((b) => !have.has(b))];
+  const want = savedBasis();
+  pick.innerHTML = names.map((b) => `<option value="${esc(b)}"${b === want ? " selected" : ""}>${esc(b)}${have.has(b) ? "" : " (none yet)"}</option>`).join("");
+  const show = () => {
+    const r = rows.find((x) => x.basis === pick.value);
+    try { localStorage.setItem("pis_basis", pick.value); } catch (_) {}
+    $("#basis-value").textContent = r ? `${cur} ${fmt(r.mean)}${r.per_year ? " p.a." : ""}` : "—";
+    $("#basis-sub").textContent = r
+      ? `${r.count} valuation${r.count === 1 ? "" : "s"} · median ${fmt(r.median)}${r.per_sqm ? ` · ${cur} ${fmt(r.per_sqm)} per m²` : ""}`
+      : "No valuations on this basis yet";
+  };
+  pick.onchange = show;
+  show();
+}
+function renderBasisTable(box, rows, cur) {
+  if (!box) return;
+  if (!rows.length) { box.innerHTML = '<p class="muted">No valuations yet.</p>'; return; }
+  box.innerHTML = table(["Basis of value", { t: "Valuations", num: true }, { t: `Average (${cur})`, num: true }, { t: "Median", num: true },
+    { t: "Lowest", num: true }, { t: "Highest", num: true }, { t: "Average per m²", num: true }],
+  rows.map((r) => [esc(r.basis) + (r.per_year ? ' <span class="muted small">(per year)</span>' : ""), { v: r.count, num: true },
+    { v: fmt(r.mean), num: true }, { v: fmt(r.median), num: true }, { v: fmt(r.min), num: true }, { v: fmt(r.max), num: true },
+    { v: r.per_sqm ? fmt(r.per_sqm) : "—", num: true }]));
 }
 
 const kpi = (label, value, sub) => `<div class="kpi"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="sub">${esc(sub)}</div></div>`;
@@ -342,8 +380,9 @@ async function loadReports() {
 /* Field definitions for the record editor */
 /* Record editor: tabbed like a valuation report. */
 const RATING = ["Excellent", "Very good", "Good", "Fair", "Poor"];
-const BASES = ["Market Value", "Market Rent", "Forced Sale Value", "Fair Value", "Investment Value",
-  "Reinstatement Cost", "Depreciated Replacement Cost", "Mortgage Lending Value"];
+const BASES = ["Market Value", "Market Rent", "Fair Value", "Equitable Value", "Investment Value", "Synergistic Value",
+  "Marriage Value", "Special Value", "Liquidation Value", "Forced Sale Value", "Reinstatement Cost",
+  "Depreciated Replacement Cost", "Mortgage Lending Value"];
 /* One standard basis: "Market Value VALUATION OPINION" -> "Market Value". */
 function basisCanonical(v) {
   if (!v) return "";
@@ -1080,6 +1119,10 @@ async function loadIntel() {
   const s = await api("/api/analytics/summary?" + qs(f));
   const cur = s.currency || "";
   showSuspects($("#intel-warning"), s.suspect_values, s.currency || "");
+  renderBasisTable($("#intel-bases"), s.by_basis || [], s.currency || "");
+  const chosen = f.basis_of_value;
+  if (chosen && s.metrics.capital_value) s.metrics.capital_value.label = `Average ${chosen}`;
+  if (chosen && s.metrics.value_per_sqm) s.metrics.value_per_sqm.label = `${chosen} per m²`;
   const cards = [kpi("Records", fmt(s.record_count), s.scope)];
   Object.entries(s.metrics).forEach(([k, m]) => {
     const ratio = k === "yield_pct" || k === "affordability_ratio" || k === "supply_units";

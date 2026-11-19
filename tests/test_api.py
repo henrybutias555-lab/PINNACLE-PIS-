@@ -1208,3 +1208,44 @@ def test_gemini_self_check(monkeypatch):
     monkeypatch.setattr(gemini, "_client", lambda: SimpleNamespace(models=BadKey()))
     status = gemini.self_check()
     assert status["ok"] is False and "invalid" in status["detail"]
+
+
+def test_averages_by_basis_of_value(client, admin):
+    rows = [
+        {"basis_of_value": "Market Value", "capital_value": 1_000_000, "size_sqm": 200, "forced_sale_value": 700_000},
+        {"basis_of_value": "Market Value", "capital_value": 3_000_000, "size_sqm": 300, "annual_rent": 120_000},
+        {"basis_of_value": "Fair Value", "capital_value": 2_000_000},
+        {"basis_of_value": "Marriage Value", "capital_value": 5_000_000},
+        {"capital_value": 900_000},
+    ]
+    for row in rows:
+        r = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Basistown", **row})
+        assert r.status_code in (200, 201), r.text
+    s = client.get("/api/analytics/summary?location=Basistown", headers=admin).json()
+    by = {b["basis"]: b for b in s["by_basis"]}
+    assert by["Market Value"]["count"] == 2 and by["Market Value"]["mean"] == 2_000_000
+    assert by["Market Value"]["per_sqm"] == 7_500
+    assert by["Fair Value"]["mean"] == 2_000_000 and by["Marriage Value"]["count"] == 1
+    assert by["Forced Sale Value"]["mean"] == 700_000          # stated alongside market value
+    assert by["Market Rent"]["mean"] == 120_000 and by["Market Rent"]["per_year"]
+    assert by["Not stated"]["count"] == 1
+    assert s["by_basis"][0]["basis"] == "Market Value"
+
+    mv = client.get("/api/analytics/summary?location=Basistown&basis_of_value=Market Value", headers=admin).json()
+    assert mv["metrics"]["capital_value"]["mean"] == 2_000_000 and "basis of value: Market Value" in mv["scope"]
+    fv = client.get("/api/records?location=Basistown&basis_of_value=Fair Value", headers=admin).json()
+    assert fv["total"] == 1
+    fsv = client.get("/api/records?location=Basistown&basis_of_value=Forced Sale Value", headers=admin).json()
+    assert fsv["total"] == 1
+    br = client.get("/api/analytics/breakdown?group_by=basis_of_value", headers=admin)
+    assert br.status_code == 200
+
+
+def test_basis_aliases():
+    from app.services.rules import normalise_basis
+    assert normalise_basis("Worth") == "Investment Value"
+    assert normalise_basis("Open Market Value") == "Market Value"
+    assert normalise_basis("Synergistic Value") == "Synergistic Value"
+    assert normalise_basis("Marriage value of the merged plots") == "Marriage Value"
+    assert normalise_basis("rental value") == "Market Rent"
+    assert normalise_basis("Market Value VALUATION OPINION") == "Market Value"

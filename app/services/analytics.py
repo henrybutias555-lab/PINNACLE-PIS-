@@ -60,6 +60,48 @@ def suspect_values(records: list[Record]) -> list[Record]:
     return out
 
 
+def basis_figure(r: Record, basis: str) -> float | None:
+    """The opinion of value that belongs to a basis (rent for Market Rent, FSV for Forced Sale Value)."""
+    if basis == "Market Rent":
+        return r.annual_rent if r.annual_rent else (r.capital_value if r.basis_of_value == "Market Rent" else None)
+    if basis == "Forced Sale Value":
+        if r.forced_sale_value:
+            return r.forced_sale_value
+        return r.capital_value if r.basis_of_value == "Forced Sale Value" else None
+    return r.capital_value
+
+
+def by_basis(records: list[Record]) -> list[dict]:
+    """Average opinion of value for each basis of value (valuations only, one currency)."""
+    vals = [r for r in records if r.category == "valuation"]
+    currency = dominant_currency(vals)
+    vals = [r for r in vals if (r.currency or currency) == currency]
+    groups: dict[str, list[tuple[float, float | None]]] = defaultdict(list)
+    for r in vals:
+        basis = r.basis_of_value or "Not stated"
+        fig = basis_figure(r, basis)
+        if fig:
+            per = fig / r.size_sqm if r.size_sqm and basis not in ("Market Rent",) else None
+            groups[basis].append((fig, per))
+        if r.forced_sale_value and basis != "Forced Sale Value":   # FSV stated alongside another basis
+            groups["Forced Sale Value"].append((r.forced_sale_value,
+                                                r.forced_sale_value / r.size_sqm if r.size_sqm else None))
+        if r.annual_rent and basis not in ("Market Rent",):          # rent opinion given alongside
+            groups["Market Rent"].append((r.annual_rent, None))
+    out = []
+    for basis, items in groups.items():
+        figs = [f for f, _ in items]
+        pers = [p for _, p in items if p]
+        out.append({"basis": basis, "currency": currency, "count": len(figs),
+                    "mean": round(statistics.fmean(figs), 2), "median": round(statistics.median(figs), 2),
+                    "min": round(min(figs), 2), "max": round(max(figs), 2),
+                    "per_sqm": round(statistics.fmean(pers), 2) if pers else None,
+                    "per_year": basis == "Market Rent"})
+    order = {"Market Value": 0, "Market Rent": 1, "Forced Sale Value": 2, "Not stated": 99}
+    out.sort(key=lambda x: (order.get(x["basis"], 10), -x["count"]))
+    return out
+
+
 def summary(records: list[Record]) -> dict:
     suspects = suspect_values(records)
     suspect_ids = {r.id for r in suspects}
@@ -77,6 +119,7 @@ def summary(records: list[Record]) -> dict:
             metrics[metric] = {"label": label, **s}
     dates = sorted(r.record_date for r in records if r.record_date)
     return {
+        "by_basis": by_basis(records),
         "suspect_values": [{"id": r.id, "label": r.address or r.location or r.title or f"Record {r.id}",
                             "capital_value": r.capital_value, "value_per_sqm": r.value_per_sqm,
                             "size_sqm": r.size_sqm} for r in suspects],
