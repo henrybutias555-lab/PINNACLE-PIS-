@@ -84,6 +84,7 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         rec.setdefault("currency", settings.default_currency)
         rec.setdefault("category", draft.get("report_type") or "valuation")
         _derive_rates(rec)
+        rules.clean_gps_fields(rec, report.raw_text or text or "")
         if rec.get("basis_of_value"):
             rec["basis_of_value"] = rules.normalise_basis(rec["basis_of_value"])
         from ..routers.records import RATING_FIELDS, normalise_rating
