@@ -138,8 +138,26 @@ $("#login-form").addEventListener("submit", async (e) => {
     saveSession(d.access_token, d.user);
     e.target.reset();
     startApp();
+    shareSignInLocation();
   } catch (err) { $("#login-error").textContent = err.message; }
 });
+/* Device location at sign-in. The browser itself asks the user; nothing is sent unless they allow it. */
+function shareSignInLocation() {
+  const send = (body) => api("/api/auth/location", { method: "POST", body }).catch(() => {});
+  if (!navigator.geolocation) { send({ declined: true, reason: "not supported by this browser" }); return; }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => send({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+    (err) => send({ declined: true, reason: err.code === 1 ? "permission refused" : err.code === 3 ? "timed out" : "position unavailable" }),
+    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+}
+const mapUrl = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
+function mapLink(lat, lng, acc) {
+  if (lat == null || lng == null) return "";
+  const a = acc != null ? ` <span class="muted small">±${fmt(acc)} m</span>` : "";
+  return `<a href="${mapUrl(lat, lng)}" target="_blank" rel="noopener">📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}</a>${a}`;
+}
+const ipLink = (ip) => (ip ? `<a href="https://ipinfo.io/${encodeURIComponent(ip)}" target="_blank" rel="noopener" title="Look up this IP (approximate area and network only)">${esc(ip)}</a>` : "");
+
 $("#logout-btn").addEventListener("click", () => {
   // tell the server (so others see "Signed out"), without waiting for it
   if (state.token) fetch("/api/auth/logout", { method: "POST", keepalive: true, headers: { Authorization: `Bearer ${state.token}` } }).catch(() => {});
@@ -1376,9 +1394,10 @@ async function loadAdmin() {
   $("#online-now").innerHTML = online.length
     ? `<span class="dot on"></span><b>${online.length} online now:</b> ${online.map((u) => esc(u.full_name || u.email) + (state.user && u.id === state.user.id ? " (you)" : "")).join(", ")}`
     : '<span class="dot"></span>Nobody is online right now.';
-  $("#users-table").innerHTML = table(["Name", "Email", "Role", "Status", "Account", ""], users.map((u) => [esc(u.full_name), esc(u.email),
+  $("#users-table").innerHTML = table(["Name", "Email", "Role", "Status", "Location at last sign-in", "Account", ""], users.map((u) => [esc(u.full_name), esc(u.email),
     `<select class="role-sel" data-id="${u.id}">${Object.entries(ROLE_NAMES).map(([k, l]) => `<option value="${k}" ${k === u.role ? "selected" : ""}>${l}</option>`).join("")}</select>`,
     presence(u),
+    u.last_latitude != null ? `${mapLink(u.last_latitude, u.last_longitude, u.last_location_accuracy)}<br><span class="muted small">${ago(u.last_location_at)}</span>` : '<span class="muted small">not shared</span>',
     u.is_active ? statusPill("confirmed").replace("confirmed", "active") : '<span class="pill bad">disabled</span>',
     `<button class="btn small toggle-active" data-id="${u.id}" data-active="${u.is_active}">${u.is_active ? "Disable" : "Enable"}</button>`]));
   $$(".role-sel").forEach((s) => s.addEventListener("change", async () => {
@@ -1387,7 +1406,7 @@ async function loadAdmin() {
   $$(".toggle-active").forEach((b) => b.addEventListener("click", async () => {
     try { await api(`/api/users/${b.dataset.id}`, { method: "PATCH", body: { is_active: b.dataset.active !== "true" } }); loadAdmin(); } catch (e) { toast(e.message, true); }
   }));
-  $("#activity-table").innerHTML = table(["When", "User", "Action", "Target", "Detail", "IP"], log.map((a) => [new Date(a.created_at).toLocaleString(), esc(a.user_email || "—"), esc(a.action), esc(a.target || ""), esc(a.detail || ""), esc(a.ip || "")]));
+  $("#activity-table").innerHTML = table(["When", "User", "Action", "Target", "Detail", "IP", "Device location"], log.map((a) => [new Date(a.created_at).toLocaleString(), esc(a.user_email || "—"), esc(a.action), esc(a.target || ""), esc(a.detail || ""), ipLink(a.ip), mapLink(a.latitude, a.longitude, a.accuracy_m)]));
 }
 $("#user-form").addEventListener("submit", async (e) => {
   e.preventDefault();
