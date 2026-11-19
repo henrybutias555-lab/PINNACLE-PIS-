@@ -194,6 +194,9 @@ def _available_models() -> list[str]:
     return sorted(set(names), key=rank, reverse=True)
 
 
+FAST_ENOUGH_S = 60
+
+
 def self_check() -> dict:
     """Send a small sample report through the real extraction and check the answer.
     If the configured model no longer exists, switch to the best model the key can use."""
@@ -222,20 +225,39 @@ def self_check() -> dict:
                           f"MMDA {rec.get('district') or '-'}, tenure {rec.get('tenure') or '-'})")
         return False, f"answered, but the sample market value came back as {got!r}"
 
+    import time as _time
+
+    started = _time.monotonic()
     ok, detail = attempt()
-    if not ok and ("not found" in detail or "404" in detail):
+    slow = _time.monotonic() - started > FAST_ENOUGH_S
+    log_.info("Gemini check %s: %s", settings.gemini_model, detail)
+    if not ok or slow:
+        # Missing, failing or slow: try the other models this key can use, fastest kinds first.
+        original = settings.gemini_model
         try:
             models = _available_models()
+            log_.info("Gemini models available to this key: %s", ", ".join(models[:15]))
         except Exception as exc:  # listing models failed too
             models = []
             detail += f"; could not list models ({type(exc).__name__})"
-        for candidate in models[:4]:
-            log_.warning("Gemini model %s unavailable; trying %s", settings.gemini_model, candidate)
+        lite_first = sorted([m for m in models if m != original], key=lambda m: ("lite" not in m))
+        best = (original, detail) if ok else None
+        for candidate in lite_first[:5]:
             settings.gemini_model = candidate
-            ok, detail = attempt()
-            if ok:
-                detail += f" (switched to {candidate}; set PIS_GEMINI_MODEL={candidate} to keep it)"
+            t0 = _time.monotonic()
+            c_ok, c_detail = attempt()
+            log_.info("Gemini check %s: %s", candidate, c_detail)
+            if c_ok and _time.monotonic() - t0 <= FAST_ENOUGH_S:
+                best = (candidate, c_detail + f" (chosen over {original}: faster or working; "
+                                              f"set PIS_GEMINI_MODEL={candidate} to keep it)")
                 break
+            if c_ok and best is None:
+                best = (candidate, c_detail)
+        if best:
+            settings.gemini_model, detail = best
+            ok = True
+        else:
+            settings.gemini_model = original
     STATUS.update(ok=ok, model=settings.gemini_model, detail=detail)
     (log_.info if ok else log_.error)("Gemini self-check %s using %s: %s", "PASSED" if ok else "FAILED",
                                       settings.gemini_model, detail)
