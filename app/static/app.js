@@ -768,6 +768,20 @@ function initRecordEditor(el, rec = {}) {
     }
   }
   markAutofilled(el, rec.autofilled);
+  Object.entries(rec.suggested || {}).forEach(([field, value]) => {
+    const c = $(`[name="${field}"]`, el);
+    const label = c && c.closest("label");
+    if (!label || $(".suggest", label) || field === "comparables") return;
+    const shown = Array.isArray(value) ? value.join(", ") : typeof value === "number" ? fmt(value, 2) : String(value);
+    label.insertAdjacentHTML("beforeend", `<span class="suggest">New reading: <b>${esc(shown.length > 160 ? shown.slice(0, 160) + "…" : shown)}</b>
+      <button type="button" class="btn small use-new">Use this</button></span>`);
+    $(".use-new", label).onclick = () => {
+      setFieldValue(el, field, value);
+      c.dispatchEvent(new Event("input", { bubbles: true }));
+      label.classList.add("changed");
+      $(".suggest", label).innerHTML = "Using the new reading ✓";
+    };
+  });
   Object.keys(rec.kept || {}).forEach((field) => {
     const label = $(`[name="${field}"]`, el)?.closest("label");
     if (label && !$(".kept-hint", label)) label.insertAdjacentHTML("beforeend",
@@ -907,8 +921,9 @@ async function openReview(id) {
     actions.push('<button class="btn" id="close-review">Close</button>');
     const banner = pendingUpdate
       ? `<div class="notice">New extraction (${esc(r.extraction_method || "")}) from ${esc(new Date(draft.reextracted_at).toLocaleString())}.
-         Fields marked <span class="changed-chip">changed</span> differ from the saved record; the saved value is shown under each one.
-         Nothing changes until you tap <b>Update saved records</b>.</div>`
+         Your approved values are kept. ${suggestCount(draft) ? `<b>${suggestCount(draft)}</b> field${suggestCount(draft) === 1 ? "" : "s"} read differently this time: tap <b>Use this</b> under any you want.` : "The new reading found nothing different."}
+         Fields that were empty are filled and marked <span class="changed-chip">changed</span>.
+         Nothing is saved until you tap <b>Update saved records</b>.</div>`
       : approved ? `<p class="muted small">🔒 Approved ${r.confirmed_at ? esc(new Date(r.confirmed_at).toLocaleString()) : ""}, locked. Showing the saved record${saved.length === 1 ? "" : "s"}.
          The only way to change ${saved.length === 1 ? "it" : "them"} is <b>Re-run extraction</b>, then review and tap <b>Update saved records</b>.</p>` : "";
     panel.innerHTML = `
@@ -985,6 +1000,8 @@ async function openReview(id) {
   panel.scrollIntoView({ behavior: "smooth" });
 }
 
+const suggestCount = (draft) => (draft.records || []).reduce((n, x) => n + Object.keys(x.suggested || {}).filter((k) => k !== "comparables").length, 0);
+
 /* Mark every field whose new value differs from the saved record, showing the saved value. */
 function markChanges(panel, saved) {
   const norm = (v) => {
@@ -1016,7 +1033,7 @@ function markChanges(panel, saved) {
   $$(".review-record", panel).forEach((el) => $$(".tab-panel", el).forEach((p) => {
     if ($("label.changed", p)) $(`.tab-btn[data-tab="${p.dataset.tab}"]`, el)?.classList.add("has-change");
   }));
-  if (!changed) panel.querySelector(".notice")?.insertAdjacentHTML("beforeend", "<br><b>No differences from the saved record.</b>");
+  if (!changed && !$(".suggest", panel)) panel.querySelector(".notice")?.insertAdjacentHTML("beforeend", "<br><b>No differences from the saved record.</b>");
 }
 
 /* ---------------- Records ---------------- */
