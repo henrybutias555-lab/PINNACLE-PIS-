@@ -242,3 +242,10 @@ details.card summary { cursor: pointer; }
 #analysis-basis { min-width: 16rem; }
 #analysis-stamp { margin: .5rem 0 0; }
 #analysis-dates[hidden] { display: none; }
+
+/* empty = not stated in the report */
+input::placeholder, textarea::placeholder { font-style: italic; color: #9aa3ab; opacity: 1; }
+select:has(option[value=""]:checked) { font-style: italic; color: #9aa3ab; }
+select option { font-style: normal; color: var(--text, #1f2933); }
+.ns-tag { display: none; font-size: .72rem; font-style: italic; color: #9aa3ab; }
+label.gap .ns-tag { display: block; }

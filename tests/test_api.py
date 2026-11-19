@@ -1282,3 +1282,20 @@ def test_basis_analysis_period(client, admin):
     b = client.get("/api/analytics/basis?location=Datetown&basis=Market Value&date_from=2025-01-01&interval=year",
                    headers=admin).json()
     assert b["overall"]["Market Value"]["mean"] == 3_000_000 and b["trend"]["Market Value"][0]["period"] == "2025"
+
+
+def test_not_stated_saved_as_blank(client, admin):
+    r = client.post("/api/records", headers=admin, json={
+        "category": "valuation", "location": "Blankville", "tenure": "Not stated", "size_sqm": "N/A",
+        "inspection_date": "—", "capital_value": 2_000_000, "encumbrances": "None"})
+    assert r.status_code == 201, r.text
+    rec = r.json()
+    assert rec["tenure"] is None and rec["size_sqm"] is None and rec["inspection_date"] is None
+    assert rec["encumbrances"] == "None"          # a real answer, kept
+    u = client.patch(f"/api/records/{rec['id']}", headers=admin, json={"owner": "not stated"})
+    assert u.status_code == 200 and u.json()["owner"] is None
+
+
+def test_review_form_marks_empty_fields_not_stated(client):
+    js = client.get("/static/app.js").text
+    assert 'const NS = "Not stated"' in js and "ns-tag" in js

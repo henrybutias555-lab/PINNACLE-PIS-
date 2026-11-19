@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# Typed or exported markers meaning "the report did not state this": stored as blank.
+NOT_STATED = {"not stated", "not stated in report", "n/a", "na", "-", "--", "—", "–", "nil", "not available",
+              "not given", "not provided", "unknown", "none stated"}
+
+
+def is_not_stated(v: Any) -> bool:
+    return isinstance(v, str) and v.strip().lower().rstrip(".") in NOT_STATED
+
 
 Role = Literal["admin", "senior", "junior", "viewer"]
 Category = Literal["valuation", "cost", "housing"]
@@ -133,6 +142,15 @@ class RecordBase(BaseModel):
     purpose_restriction: str | None = None
     notes: str | None = None
     tags: list[str] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _not_stated_is_blank(cls, data: Any):
+        if isinstance(data, dict):
+            data = {k: (None if is_not_stated(v) else v) for k, v in data.items()}
+            if data.get("currency") is None and "currency" in data:
+                data.pop("currency")
+        return data
 
     @field_validator("record_date", "inspection_date", mode="before")
     @classmethod

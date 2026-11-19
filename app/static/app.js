@@ -547,26 +547,29 @@ const ATTACH_KINDS = [["photo", "Photographs"], ["site_plan", "Site plan"], ["ti
   ["allocation_note", "Allocation note"], ["valuation_certificate", "Valuation certificate"], ["supporting", "Supporting documents"]];
 state.lastTab = "property";
 
+/* An empty field means the report did not state it. */
+const NS = "Not stated";
 function fieldHTML([key, label, kind], rec) {
   const v = rec[key] ?? "";
-  if (kind === "text") return `<label class="wide">${esc(label)}<textarea name="${key}" rows="2">${esc(v)}</textarea></label>`;
+  if (kind === "text") return `<label class="wide">${esc(label)}<textarea name="${key}" rows="2" placeholder="${NS}">${esc(v)}</textarea></label>`;
   if (kind === "mmda") {
-    return `<label>${esc(label)} <span class="muted small">(${MMDAS.length})</span><select name="${key}" class="mmda-select">${mmdaOptions(v)}</select></label>`;
+    return `<label>${esc(label)} <span class="muted small">(${MMDAS.length})</span><select name="${key}" class="mmda-select">${mmdaOptions(v, `${NS} — select MMDA`)}</select></label>`;
   }
   if (SELECTS[kind]) {
     const val = kind === "basis" ? basisCanonical(v) : v;
     const opts = SELECTS[kind].includes(val) || !val ? SELECTS[kind] : [val, ...SELECTS[kind]];
-    return `<label>${esc(label)}<select name="${key}"><option value=""></option>${opts.map((o) => `<option ${o === val ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
+    return `<label>${esc(label)}<select name="${key}"><option value="">${NS}</option>${opts.map((o) => `<option ${o === val ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
   }
   if (LISTS[kind] || HINTS[kind]) {
     const list = LISTS[kind] ? ` list="${LISTS[kind]}"` : "";
-    const hint = HINTS[kind] ? ` placeholder="${HINTS[kind]}"` : "";
+    const hint = ` placeholder="${NS}${HINTS[kind] ? ` (${HINTS[kind]})` : ""}"`;
     const extra = kind === "gps" ? ' autocapitalize="characters" spellcheck="false"' : "";
     return `<label>${esc(label)}<input type="text" name="${key}" value="${esc(v)}"${list}${hint}${extra}></label>`;
   }
   const type = kind === "num" || kind === "int" ? "number" : kind === "date" ? "date" : "text";
   const step = kind === "num" ? ' step="any"' : "";
-  return `<label class="${kind === "wide" ? "wide" : ""}">${esc(label)}<input type="${type}"${step} name="${key}" value="${esc(v)}" data-kind="${kind || ""}"></label>`;
+  const ns = type === "date" ? `<span class="ns-tag">${NS}</span>` : "";
+  return `<label class="${kind === "wide" ? "wide" : ""}">${esc(label)}<input type="${type}"${step} name="${key}" value="${esc(v)}" data-kind="${kind || ""}"${type === "date" ? "" : ` placeholder="${NS}"`}>${ns}</label>`;
 }
 
 function recordEditorHTML(rec, idx) {
