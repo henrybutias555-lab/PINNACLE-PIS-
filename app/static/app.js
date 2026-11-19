@@ -22,6 +22,30 @@ const state = { token: null, user: null, health: null, recordsPage: 1, charts: {
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+/* Amount boxes show commas (1,500,000) while typing; values are saved as plain numbers. */
+const toNum = (s) => { const t = String(s ?? "").replace(/[,\s]/g, ""); return t === "" ? null : Number(t); };
+function withCommas(v) {
+  if (v === null || v === undefined || v === "") return "";
+  const t = String(v).replace(/[,\s]/g, "");
+  const m = t.match(/^(-?)(\d*)(\.\d*)?$/);
+  if (!m) return String(v);
+  const int = m[2] ? m[2].replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",") : (m[3] ? "0" : "");
+  return m[1] + int + (m[3] || "");
+}
+document.addEventListener("input", (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || !el.dataset.num) return;
+  const clean = el.value.replace(/[^\d.,\-\s]/g, "");
+  const pos = el.selectionStart ?? el.value.length;
+  const keep = el.value.slice(0, pos).replace(/[^\d.\-]/g, "").length;
+  const out = withCommas(clean);
+  if (out === el.value) return;
+  el.value = out;
+  let i = 0;
+  for (let n = 0; i < out.length && n < keep; i++) if (/[\d.\-]/.test(out[i])) n++;
+  try { el.setSelectionRange(i, i); } catch (_) {}
+}, true);
+const NUM_ATTR = 'type="text" inputmode="decimal" autocomplete="off" data-num="1"';
 const fmt = (v, digits = 0) => (v === null || v === undefined || v === "" ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 }));
 const can = (role) => state.user && ROLE_LEVEL[state.user.role] >= ROLE_LEVEL[role];
 
@@ -88,7 +112,11 @@ const qs = (obj) => {
   Object.entries(obj).forEach(([k, v]) => { if (v !== null && v !== undefined && v !== "") p.set(k, v); });
   return p.toString();
 };
-const formData = (form) => Object.fromEntries([...new FormData(form).entries()].filter(([, v]) => v !== ""));
+const formData = (form) => {
+  const nums = new Set([...form.querySelectorAll("input[data-num]")].map((i) => i.name));
+  return Object.fromEntries([...new FormData(form).entries()].filter(([, v]) => v !== "")
+    .map(([k, v]) => [k, nums.has(k) ? String(toNum(v)) : v]));
+};
 
 /* ---------------- Auth ---------------- */
 function saveSession(token, user) {
@@ -212,7 +240,7 @@ function filterFormHTML(withSearch = true) {
     <label>Purpose<input name="purpose"></label>
     <label>From<input type="date" name="date_from"></label>
     <label>To<input type="date" name="date_to"></label>
-    ${withSearch ? '<label>Min value/cost<input type="number" step="any" name="min_amount"></label><label>Max value/cost<input type="number" step="any" name="max_amount"></label><label>Tag<input name="tag"></label>' : ""}
+    ${withSearch ? '<label>Min value/cost<input ${NUM_ATTR} name="min_amount" placeholder="e.g. 500,000"></label><label>Max value/cost<input ${NUM_ATTR} name="max_amount" placeholder="e.g. 5,000,000"></label><label>Tag<input name="tag"></label>' : ""}
     <div class="filter-actions"><button class="btn primary" type="submit">Apply</button><button class="btn" type="reset">Clear</button></div>`;
 }
 
@@ -256,7 +284,7 @@ function showSuspects(box, list, cur) {
   }));
 }
 function checkValueOpinion(el) {
-  const v = Number($("[name=capital_value]", el)?.value || 0), size = Number($("[name=size_sqm]", el)?.value || 0);
+  const v = toNum($("[name=capital_value]", el)?.value) || 0, size = toNum($("[name=size_sqm]", el)?.value) || 0;
   const cur = ($("[name=currency]", el)?.value || "GHS").toUpperCase();
   const label = $("[name=capital_value]", el)?.closest("label");
   if (!label) return;
@@ -566,8 +594,11 @@ function fieldHTML([key, label, kind], rec) {
     const extra = kind === "gps" ? ' autocapitalize="characters" spellcheck="false"' : "";
     return `<label>${esc(label)}<input type="text" name="${key}" value="${esc(v)}"${list}${hint}${extra}></label>`;
   }
-  const type = kind === "num" || kind === "int" ? "number" : kind === "date" ? "date" : "text";
-  const step = kind === "num" ? ' step="any"' : "";
+  if (kind === "num" || kind === "int") {
+    return `<label>${esc(label)}<input ${NUM_ATTR} name="${key}" value="${esc(withCommas(v))}" data-kind="${kind}" placeholder="${NS}"></label>`;
+  }
+  const type = kind === "date" ? "date" : "text";
+  const step = "";
   const ns = type === "date" ? `<span class="ns-tag">${NS}</span>` : "";
   return `<label class="${kind === "wide" ? "wide" : ""}">${esc(label)}<input type="${type}"${step} name="${key}" value="${esc(v)}" data-kind="${kind || ""}"${type === "date" ? "" : ` placeholder="${NS}"`}>${ns}</label>`;
 }
@@ -589,7 +620,7 @@ function recordEditorHTML(rec, idx) {
       html += comparablesEditorHTML(comps);
     }
     if (key === "cost") {
-      html += `<p class="sub-head">Elemental cost breakdown</p><div class="form-grid">${BREAKDOWN_KEYS.map((k) => `<label>${k.replace("_", " ")}<input type="number" step="any" name="bd_${k}" value="${esc(bd[k] ?? "")}"></label>`).join("")}</div>`;
+      html += `<p class="sub-head">Elemental cost breakdown</p><div class="form-grid">${BREAKDOWN_KEYS.map((k) => `<label>${k.replace("_", " ")}<input ${NUM_ATTR} name="bd_${k}" value="${esc(withCommas(bd[k]))}" placeholder="—"></label>`).join("")}</div>`;
     }
     return html;
   };
@@ -611,7 +642,7 @@ const COMP_FIELDS = [["address", "Address / location"], ["property_type", "Type"
 let compRowSeq = 0;
 function compRowHTML(c = {}) {
   const i = compRowSeq++;
-  return `<tr data-row="${i}">${COMP_FIELDS.map(([k, , kind]) => `<td><input name="cmp_${i}_${k}" value="${esc(c[k] ?? "")}"${kind === "num" ? ' type="number" step="any" data-kind="num"' : ""} aria-label="${k}"></td>`).join("")}
+  return `<tr data-row="${i}">${COMP_FIELDS.map(([k, , kind]) => `<td><input name="cmp_${i}_${k}" value="${esc(kind === "num" ? withCommas(c[k]) : c[k] ?? "")}"${kind === "num" ? ` ${NUM_ATTR} data-kind="num"` : ""} aria-label="${k}"></td>`).join("")}
     <td><button type="button" class="btn small danger comp-del" title="Remove comparable">✕</button></td></tr>`;
 }
 function comparablesEditorHTML(comps) {
@@ -745,17 +776,17 @@ function readRecordEditor(el, original) {
     if (cm) {
       if (v === "") return;
       comps[cm[1]] = comps[cm[1]] || {};
-      comps[cm[1]][cm[2]] = inp.dataset.kind === "num" ? Number(v) : v;
+      comps[cm[1]][cm[2]] = inp.dataset.kind === "num" ? toNum(v) : v;
       return;
     }
     if (name.startsWith("bd_")) {
-      if (v !== "") { rec.cost_breakdown = rec.cost_breakdown || {}; rec.cost_breakdown[name.slice(3)] = Number(v); }
+      if (v !== "") { rec.cost_breakdown = rec.cost_breakdown || {}; rec.cost_breakdown[name.slice(3)] = toNum(v); }
       return;
     }
     if (name === "tags") { rec.tags = v ? v.split(",").map((t) => t.trim()).filter(Boolean) : null; return; }
     if (v === "") { rec[name] = null; return; }
-    if (inp.dataset.kind === "num") v = Number(v);
-    if (inp.dataset.kind === "int") v = parseInt(v, 10);
+    if (inp.dataset.kind === "num") v = toNum(v);
+    if (inp.dataset.kind === "int") v = Math.round(toNum(v));
     rec[name] = v;
   });
   if (hasCompEditor) {
@@ -872,8 +903,8 @@ function markChanges(panel, saved) {
   const norm = (v) => {
     if (v === null || v === undefined) return "";
     if (Array.isArray(v)) return v.map((x) => String(x).trim().toLowerCase()).filter(Boolean).sort().join(",");
-    const n = Number(v);
-    if (v !== "" && !Number.isNaN(n) && /^-?[\d.,\s]+$/.test(String(v))) return String(Math.round(n * 100) / 100);
+    const n = toNum(v);
+    if (v !== "" && n !== null && !Number.isNaN(n) && /^-?[\d.,\s]+$/.test(String(v))) return String(Math.round(n * 100) / 100);
     return String(v).trim().toLowerCase();
   };
   let changed = 0;
@@ -1025,7 +1056,7 @@ function setFieldValue(el, field, value) {
   }
   if (field === "cost_breakdown" && value && typeof value === "object") {
     let any = false;
-    Object.entries(value).forEach(([k, v]) => { const c = $(`[name="bd_${k}"]`, el); if (c && isEmpty(c)) { c.value = v; any = true; } });
+    Object.entries(value).forEach(([k, v]) => { const c = $(`[name="bd_${k}"]`, el); if (c && isEmpty(c)) { c.value = withCommas(v); any = true; } });
     return any;
   }
   const c = $(`[name="${field}"]`, el);
@@ -1035,7 +1066,7 @@ function setFieldValue(el, field, value) {
     if (field === "basis_of_value") v = basisCanonical(v);
     if (![...c.options].some((o) => o.value === String(v))) c.insertAdjacentHTML("beforeend", `<option value="${esc(v)}">${esc(v)}</option>`);
   }
-  c.value = v;
+  c.value = c.dataset.num ? withCommas(v) : v;
   return true;
 }
 async function fillGaps(el, original, reportId, btn) {
@@ -1102,9 +1133,10 @@ function sheetCell(rec, [key, , kind]) {
   if (kind === "mmda") return `<select ${common}>${mmdaOptions(v, "—")}</select>`;
   if (kind === "basis") { const b = basisCanonical(v); return `<select ${common}><option value="">—</option>${(BASES.includes(b) || !b ? BASES : [b, ...BASES]).map((o) => `<option ${o === b ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`; }
   if (kind === "cat") return `<select ${common}>${["valuation", "cost", "housing"].map((c) => `<option ${c === v ? "selected" : ""}>${c}</option>`).join("")}</select>`;
-  const type = kind === "num" ? "number" : kind === "date" ? "date" : "text";
+  if (kind === "num") return `<input ${NUM_ATTR} value="${esc(withCommas(v))}" placeholder="—" ${common}>`;
+  const type = kind === "date" ? "date" : "text";
   const list = kind && kind.startsWith("list:") ? ` list="${kind.slice(5)}"` : "";
-  return `<input type="${type}"${type === "number" ? ' step="any"' : ""}${list} value="${esc(v)}"${type === "date" ? "" : ' placeholder="—"'} ${common}>`;
+  return `<input type="${type}"${list} value="${esc(v)}"${type === "date" ? "" : ' placeholder="—"'} ${common}>`;
 }
 
 function renderSheet() {
@@ -1121,7 +1153,7 @@ function renderSheet() {
     const id = el.dataset.id, key = el.dataset.key;
     const rec = items.find((x) => String(x.id) === id);
     let val = el.value.trim();
-    if (el.dataset.kind === "num") val = val === "" ? null : Number(val);
+    if (el.dataset.kind === "num") val = toNum(val);
     else if (el.dataset.kind === "tags") val = val ? val.split(",").map((t) => t.trim()).filter(Boolean) : null;
     else if (val === "") val = null;
     const orig = rec[key];
