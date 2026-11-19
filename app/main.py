@@ -20,7 +20,7 @@ from .config import settings
 from .database import (ENGINE_ERROR, Base, SessionLocal, add_missing_columns, engine, ensure_schema, safe_url,
                        widen_columns)
 from .models import User
-from .routers import attachments, auth_users, gaps, imports, intelligence, records, reports, research
+from .routers import attachments, auth_users, discussions, gaps, imports, intelligence, records, reports, research
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("pis")
@@ -310,6 +310,7 @@ app.include_router(imports.router)
 app.include_router(attachments.router)
 app.include_router(gaps.router)
 app.include_router(research.router)
+app.include_router(discussions.router)
 
 
 @app.get("/api/mmdas")

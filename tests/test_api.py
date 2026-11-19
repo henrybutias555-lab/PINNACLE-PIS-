@@ -1742,3 +1742,50 @@ def test_ask_the_document(client, admin, make_user, monkeypatch):
     body = client.post(f"/api/research/{doc['id']}/ask", headers=viewer, json={"question": "phase 2 plans"}).json()
     assert body["method"] == "search" and "rate limit" in body["warning"] and "Mobile site" in body["quotes"][0]
     assert client.post(f"/api/research/{doc['id']}/ask", headers=viewer, json={"question": "?"}).status_code == 422
+
+
+def test_discussions_chat_with_papers(client, admin, make_user, monkeypatch):
+    import json as _json
+
+    from app.config import Settings
+    from app.services import gemini, llm
+
+    a = client.post("/api/research", headers=admin, files={"file": ("a.txt", (
+        b"Housing Report 2026\nRents in Accra rose 12% in 2025.\nSupply of affordable units remains low.\n"), "text/plain")}).json()
+    b = client.post("/api/research", headers=admin, files={"file": ("b.txt", (
+        b"Construction Cost Survey\nCement prices rose 20% over the year.\n"), "text/plain")}).json()
+    junior, viewer = make_user("junior"), make_user("viewer")
+    chat = client.post("/api/discussions", headers=junior, json={"paper_ids": [a["id"], b["id"]]}).json()
+    assert [p["id"] for p in chat["papers"]] == [a["id"], b["id"]] and chat["messages"] == []
+    # without AI: passages
+    r = client.post(f"/api/discussions/{chat['id']}/messages", headers=junior, json={"message": "How much did rents rise?"}).json()
+    assert r["reply"]["method"] == "search" and any("12%" in q["quote"] for q in r["reply"]["quotes"])
+    assert r["title"].startswith("How much did rents rise")
+    # with AI: the conversation so far is sent, quotes are checked against the papers
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "provider", lambda: "gemini")
+    seen = {}
+
+    def fake(system, contents, **kw):
+        seen["prompt"] = contents[0]
+        return _json.dumps({"reply": "Rents rose 12% while cement rose 20%, so costs outpaced rents.",
+                            "quotes": [{"paper": "Construction Cost Survey", "quote": "Cement prices rose 20% over the year."},
+                                       {"paper": "Housing Report 2026", "quote": "A sentence the paper never said."}]})
+    monkeypatch.setattr(gemini, "_call", fake)
+    r = client.post(f"/api/discussions/{chat['id']}/messages", headers=junior,
+                    json={"message": "Compare that with construction costs"}).json()
+    assert r["reply"]["method"] == "ai" and "outpaced" in r["reply"]["content"]
+    assert [q["quote"] for q in r["reply"]["quotes"]] == ["Cement prices rose 20% over the year."]
+    assert r["reply"]["quotes"][0]["paper_id"] == b["id"]
+    assert "Surveyor: How much did rents rise?" in seen["prompt"] and '<paper number="2"' in seen["prompt"]
+    full = client.get(f"/api/discussions/{chat['id']}", headers=junior).json()
+    assert len(full["messages"]) == 4 and full["messages"][-1]["role"] == "assistant"
+    # private: others can't see or post
+    assert client.get(f"/api/discussions/{chat['id']}", headers=viewer).status_code == 404
+    assert client.post(f"/api/discussions/{chat['id']}/messages", headers=viewer, json={"message": "hi"}).status_code == 404
+    assert all(c["id"] != chat["id"] for c in client.get("/api/discussions", headers=viewer).json())
+    # papers can be changed; at least one, at most five
+    assert client.patch(f"/api/discussions/{chat['id']}", headers=junior, json={"paper_ids": []}).status_code == 422
+    assert len(client.patch(f"/api/discussions/{chat['id']}", headers=junior, json={"paper_ids": [a["id"]]}).json()["papers"]) == 1
+    assert client.post("/api/discussions", headers=junior, json={"paper_ids": []}).status_code == 422
+    assert client.delete(f"/api/discussions/{chat['id']}", headers=junior).status_code == 204
