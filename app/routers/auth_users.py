@@ -38,10 +38,13 @@ def sign_in_location(body: LocationIn, request: Request, user: User = Depends(ge
                      db: Session = Depends(get_db)):
     """Where the device was at sign-in, as reported by the browser after the user allowed it."""
     from ..models import ActivityLog, utcnow
+    now = utcnow()
     if body.declined or body.latitude is None or body.longitude is None:
+        user.location_status, user.location_status_at = (body.reason or "declined")[:120], now
+        db.commit()
         log_activity(db, user, "location_not_shared", detail=(body.reason or "declined")[:120], request=request)
         return {"ok": True, "saved": False}
-    now = utcnow()
+    user.location_status, user.location_status_at = "shared", now
     user.last_latitude, user.last_longitude = body.latitude, body.longitude
     user.last_location_accuracy, user.last_location_at = body.accuracy, now
     ip = request.client.host if request.client else None

@@ -264,3 +264,6 @@ label.gap .ns-tag { display: block; }
 @keyframes pis-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .btn.busy::before { animation-duration: 2s; } }
 #login-wait { margin: .25rem 0 0; }
+
+.loc-notice { width: min(36rem, calc(100vw - 2rem)); box-sizing: border-box; align-items: flex-start; gap: .75rem; text-align: left; line-height: 1.4; }
+.loc-warn { color: var(--warn, #b7791f); font-weight: 600; }

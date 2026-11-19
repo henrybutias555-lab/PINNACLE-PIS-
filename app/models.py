@@ -38,6 +38,9 @@ class User(Base):
     last_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_location_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_location_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # outcome of the last request: "shared", "permission refused", "timed out" ...
+    location_status: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    location_status_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     ONLINE_WINDOW_S = 150   # an open PIS page checks in every minute
 
