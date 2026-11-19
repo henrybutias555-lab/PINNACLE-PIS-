@@ -465,6 +465,49 @@ def _amount_in_words(window: str) -> float | None:
     return value if value and value >= 100 else None
 
 
+_NOT_BUILD_RATE = re.compile(r"interest|capitali[sz]|yield|depreciat|discount|exchange|inflation|vacancy|"
+                             r"growth|tax|rating|occupancy|mortgage|lending|return", re.I)
+_PER_SQM = r"(?:per\s*(?:sq\.?\s*(?:m|metre|meter)|m(?:2|²)|square\s*met(?:re|er))|/\s*(?:sq\.?\s*)?m(?:2|²)?\b|psm|/sqm)"
+
+
+def construction_rate(text: str) -> float | None:
+    """Construction cost per m², which reports state as the 'rate' / 'rate adopted' (cost approach / DRC),
+    e.g. 'Rate adopted: GH¢ 4,500 per m²' or a table column 'Rate (GH¢/m²)'."""
+    if not text:
+        return None
+    value, _ = _labelled_amount(text, ["rate adopted", "adopted rate", "construction rate", "building rate",
+                                       "unit rate", "replacement cost rate", "rate of construction",
+                                       "rate per square met", "rate per sq", "rate per m", "construction cost per",
+                                       "building cost per", "cost per square met", "cost per sq", "cost/m"])
+    if value and value >= 50:      # not a percentage ('yield rate adopted: 8%')
+        return value
+    lines = text.splitlines()
+    # 'Main building ... at a rate of GH¢ 4,500 per m²'
+    for ln in lines:
+        if re.search(r"(?i)\brates?\b", ln) and re.search(rf"(?i){_PER_SQM}", ln) and not _NOT_BUILD_RATE.search(ln):
+            m = re.search(rf"(?i)\brates?\b[^0-9]{{0,40}}?({_NUM})\s*{_PER_SQM}", ln) or \
+                re.search(rf"(?i)({_NUM})\s*{_PER_SQM}", ln)
+            if m:
+                amount = (_money_in(m.group(0)) or (None,))[0]
+                if amount:
+                    return amount
+    # a computation table with a 'Rate' column: Item | Area (m²) | Rate (GH¢/m²) | Amount
+    for i, ln in enumerate(lines):
+        if "|" not in ln:
+            continue
+        cells = [c.strip().lower() for c in ln.split("|")]
+        col = next((j for j, c in enumerate(cells) if re.match(r"rate\b", c) and not _NOT_BUILD_RATE.search(c)), None)
+        if col is None:
+            continue
+        for row in lines[i + 1:i + 6]:
+            parts = [c.strip() for c in row.split("|")]
+            if len(parts) > col:
+                amount = (_money_in(parts[col]) or (None,))[0]
+                if amount and amount >= 50:
+                    return amount
+    return None
+
+
 def _labelled_amount(text: str, labels: list[str]) -> tuple[float | None, str | None]:
     """Amount stated after a label, looking to the end of the sentence / next lines.
     A figure written in words ("Two Million ... Ghana Cedis") is used to check the digits."""
@@ -630,9 +673,11 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
         for key, labels in SECTION_LABELS.items():
             record[key] = record.get(key) or _labelled(text, labels)
         record["gps_coordinates"] = find_coordinates(text)
+        record["cost_per_sqm"] = construction_rate(text)   # the 'rate adopted' of a cost approach / DRC
     elif category == "cost":
         record["total_cost"], cur = _labelled_amount(text, ["total construction cost", "total cost", "contract sum", "estimated cost", "total"])
         record["cost_per_sqm"], c2 = _labelled_amount(text, ["cost per square met", "cost per sq", "cost/m", "rate per m", "per m2", "per m²"])
+        record["cost_per_sqm"] = record["cost_per_sqm"] or construction_rate(text)
         cur = cur or c2
         breakdown = {}
         for key, labels in {

@@ -90,6 +90,12 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         if rec.get("purpose"):
             from .reader import standard_purpose
             rec["purpose"] = standard_purpose(rec["purpose"])
+        # Construction cost per m² = the report's "rate" / "rate adopted".
+        if not rec.get("cost_per_sqm"):
+            rate = rules.construction_rate(report.raw_text or text or "")
+            if rate:
+                rec["cost_per_sqm"] = rate
+                rec.setdefault("autofilled", {})["cost_per_sqm"] = "the rate adopted in the report"
         # The method as the report words it (not the reading's own description).
         from .reader import methods_as_written
         written = methods_as_written(report.raw_text or text or "")
