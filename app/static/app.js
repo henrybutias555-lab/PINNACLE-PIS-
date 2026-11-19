@@ -766,6 +766,11 @@ function initRecordEditor(el, rec = {}) {
     }
   }
   markAutofilled(el, rec.autofilled);
+  Object.keys(rec.kept || {}).forEach((field) => {
+    const label = $(`[name="${field}"]`, el)?.closest("label");
+    if (label && !$(".kept-hint", label)) label.insertAdjacentHTML("beforeend",
+      '<span class="kept-hint">Kept from the saved record: this re-run did not find it</span>');
+  });
   updateGaps(el);
   checkValueOpinion(el);
   ["capital_value", "size_sqm", "currency"].forEach((n) => $(`[name=${n}]`, el)?.addEventListener("input", () => checkValueOpinion(el)));
