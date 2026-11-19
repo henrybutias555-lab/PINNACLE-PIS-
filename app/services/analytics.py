@@ -9,7 +9,6 @@ from ..models import Record
 
 METRICS = {
     "capital_value": ("valuation", "Valuation opinion"),
-    "value_per_sqm": ("valuation", "Valuation opinion per m²"),
     "annual_rent": ("valuation", "Rental opinion (annual)"),
     "rent_per_sqm": ("valuation", "Rental opinion per m² p.a."),
     "yield_pct": ("valuation", "Yield (%)"),
@@ -235,7 +234,7 @@ def breakdown(records: list[Record], group_by: list[str]) -> list[dict]:
         same = [r for r in recs if r.currency == currency]
         row = {g: k for g, k in zip(group_by, key)}
         row["count"] = len(recs)
-        for metric in ("value_per_sqm", "capital_value", "annual_rent", "yield_pct", "cost_per_sqm",
+        for metric in ("capital_value", "annual_rent", "yield_pct", "cost_per_sqm",
                        "avg_price", "avg_monthly_rent"):
             vals = _values(recs if metric in RATIO_METRICS else same, metric)
             row[metric] = round(statistics.fmean(vals), 2) if vals else None
@@ -275,22 +274,28 @@ def trend(records: list[Record], metric: str, interval: str = "quarter") -> list
 
 
 def cross_analysis(records: list[Record], interval: str = "year") -> list[dict]:
-    """Construction cost per m² vs capital value per m² over time (same currency)."""
-    # construction cost per m²: cost reports and the 'rate adopted' in valuation reports
-    cost = {p["period"]: p for p in trend([r for r in records if r.cost_per_sqm], "cost_per_sqm", interval)}
-    value = {p["period"]: p for p in trend([r for r in records if r.category == "valuation"], "value_per_sqm", interval)}
+    """Construction cost per m² over time: the main building (cost reports and the rates adopted in
+    valuation reports) and external works (tap area, compound, walls ...), same currency."""
+    main = {p["period"]: p for p in trend([r for r in records if r.cost_per_sqm], "cost_per_sqm", interval)}
+    ext = {p["period"]: p for p in trend([r for r in records if r.external_works_rate], "external_works_rate", interval)}
     rows = []
-    for period in sorted(set(cost) | set(value)):
-        c = cost.get(period, {}).get("mean")
-        v = value.get(period, {}).get("mean")
-        rows.append({
-            "period": period,
-            "cost_per_sqm": c,
-            "value_per_sqm": v,
-            "cost_to_value_pct": round(c / v * 100, 1) if c and v else None,
-            "development_margin_per_sqm": round(v - c, 2) if c and v else None,
-        })
+    for period in sorted(set(main) | set(ext)):
+        rows.append({"period": period,
+                     "cost_per_sqm": main.get(period, {}).get("mean"), "cost_count": main.get(period, {}).get("count", 0),
+                     "external_works_rate": ext.get(period, {}).get("mean"), "external_count": ext.get(period, {}).get("count", 0)})
     return rows
+
+
+def trend_by(records: list[Record], metric: str, interval: str = "quarter", field: str = "property_type",
+             top: int = 4) -> list[dict]:
+    """One trend line per group (e.g. per property type), for the groups with the most records."""
+    counts = Counter((getattr(r, field) or "unspecified") for r in records if getattr(r, metric, None) is not None)
+    out = []
+    for name, _ in counts.most_common(top):
+        series = trend([r for r in records if (getattr(r, field) or "unspecified") == name], metric, interval)
+        if series:
+            out.append({"name": name, "series": series})
+    return out
 
 
 def find_comparables(candidates: list[Record], *, location: str | None, property_type: str | None,
@@ -352,12 +357,10 @@ def template_commentary(stats: dict, trends: dict, scope: str) -> str:
         + ("The evidence base is limited and the figures below should be treated with caution. " if n < 5 else "")
     )
     val_bits = []
-    if "value_per_sqm" in m:
-        s = m["value_per_sqm"]
-        val_bits.append(f"valuation opinions averaged {_fmt(s['mean'], cur)} per m² (range {_fmt(s['min'], cur)} to {_fmt(s['max'], cur)}, {s['count']} observations)")
-    elif "capital_value" in m:
+    if "capital_value" in m:
         s = m["capital_value"]
-        val_bits.append(f"valuation opinions averaged {_fmt(s['mean'], cur)} (median {_fmt(s['median'], cur)})")
+        val_bits.append(f"valuation opinions averaged {_fmt(s['mean'], cur)} (median {_fmt(s['median'], cur)}, "
+                        f"{s['count']} valuations)")
     if "annual_rent" in m:
         val_bits.append(f"annual rents averaged {_fmt(m['annual_rent']['mean'], cur)}")
     if "yield_pct" in m:
@@ -382,12 +385,13 @@ def template_commentary(stats: dict, trends: dict, scope: str) -> str:
         housing.append(f"an average affordability ratio of {m['affordability_ratio']['mean']:.1f}")
     if housing:
         paras.append("Housing market data records " + ", ".join(housing) + ".")
-    t = trends.get("value_per_sqm") or []
+    t = trends.get("capital_value") or []
     if len(t) >= 2:
         first, last = t[0], t[-1]
         if first["mean"]:
             change = (last["mean"] - first["mean"]) / first["mean"] * 100
             direction = "increased" if change > 0 else "decreased"
-            paras.append(f"Between {first['period']} and {last['period']} average capital values per m² {direction} by {abs(change):.1f}%.")
+            paras.append(f"Between {first['period']} and {last['period']} average valuation opinions {direction} by "
+                         f"{abs(change):.1f}% (the mix of properties valued in each period affects this figure).")
     paras.append("These figures are derived from the firm's own report data and should be read alongside current market enquiries.")
     return "\n\n".join(p.strip() for p in paras if p.strip())

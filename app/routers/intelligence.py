@@ -82,7 +82,7 @@ def breakdown(
 @router.get("/analytics/trends")
 def trends(
     f: RecordFilters = Depends(filters_dep),
-    metric: str = "value_per_sqm",
+    metric: str = "capital_value",
     interval: str = Query("quarter", pattern="^(month|quarter|year)$"),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -92,6 +92,26 @@ def trends(
     records = _records(db, f)
     return {"metric": metric, "label": analytics.METRICS[metric][1], "interval": interval,
             "currency": analytics.dominant_currency(records), "series": analytics.trend(records, metric, interval)}
+
+
+@router.get("/analytics/trends-by")
+def trends_by(
+    f: RecordFilters = Depends(filters_dep),
+    metric: str = "capital_value",
+    group: str = Query("property_type", pattern="^(property_type|district|location|city|basis_of_value|purpose)$"),
+    interval: str = Query("quarter", pattern="^(month|quarter|year)$"),
+    top: int = Query(4, ge=1, le=8),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """A trend line per group, e.g. average valuation opinion by property type."""
+    if metric not in analytics.METRICS:
+        raise HTTPException(422, f"metric must be one of: {', '.join(analytics.METRICS)}")
+    records = _records(db, f)
+    bad = {r.id for r in analytics.suspect_values(records)}
+    records = [r for r in records if r.id not in bad]
+    return {"metric": metric, "label": analytics.METRICS[metric][1], "group": group, "interval": interval,
+            "currency": analytics.dominant_currency(records), "lines": analytics.trend_by(records, metric, interval, group, top)}
 
 
 @router.get("/analytics/cross")
@@ -114,7 +134,7 @@ def commentary(body: CommentaryIn, request: Request, user: User = Depends(get_cu
                       date_from=body.date_from, date_to=body.date_to)
     records = _records(db, f)
     stats = analytics.summary(records)
-    trend_data = {m: analytics.trend(records, m, "quarter") for m in ("value_per_sqm", "cost_per_sqm", "yield_pct", "avg_price")}
+    trend_data = {m: analytics.trend(records, m, "quarter") for m in ("capital_value", "cost_per_sqm", "yield_pct", "avg_price")}
     scope = f.describe()
     method = "template"
     warning = None
@@ -210,7 +230,7 @@ def evidence_export(
 
 
 ANALYSIS_GROUPS = {"location", "district", "city", "property_type", "category", "purpose", "region", "basis_of_value"}
-ANALYSIS_TRENDS = ["value_per_sqm", "capital_value", "annual_rent", "yield_pct", "cost_per_sqm", "avg_price",
+ANALYSIS_TRENDS = ["capital_value", "annual_rent", "yield_pct", "cost_per_sqm", "avg_price",
                    "avg_monthly_rent"]
 
 

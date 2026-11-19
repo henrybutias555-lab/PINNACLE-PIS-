@@ -330,7 +330,7 @@ async function loadDashboard() {
   const [s, reports, t] = await Promise.all([
     api("/api/analytics/summary"),
     api("/api/reports?limit=8"),
-    api("/api/analytics/trends?metric=value_per_sqm&interval=quarter"),
+    api("/api/analytics/trends-by?metric=capital_value&group=property_type&interval=quarter&top=4"),
   ]);
   const cur = s.currency || (state.health && state.health.default_currency) || "";
   const m = s.metrics;
@@ -349,7 +349,11 @@ async function loadDashboard() {
   const locs = Object.entries(s.top_locations);
   $("#dash-locations").innerHTML = locs.length ? table(["Location", "Records"], locs.map(([k, v]) => [esc(k), { v: fmt(v), num: true }])) : '<p class="muted">No records yet.</p>';
   $("#dash-reports").innerHTML = reports.length ? table(["Report", "Type", "Status"], reports.map((r) => [esc(r.title || r.filename), esc(r.report_type || "—"), statusPill(r.status)])) : '<p class="muted">No reports uploaded yet.</p>';
-  lineChart("dash-chart", t.series.map((p) => p.period), [{ label: `Valuation opinion / m² (${t.currency || cur})`, data: t.series.map((p) => p.mean) }]);
+  const tp = [...new Set(t.lines.flatMap((l) => l.series.map((p) => p.period)))].sort();
+  lineChart("dash-chart", tp, t.lines.map((l) => {
+    const m = Object.fromEntries(l.series.map((p) => [p.period, p.mean]));
+    return { label: `${l.name.charAt(0).toUpperCase() + l.name.slice(1)} (${t.currency || cur})`, data: tp.map((p) => m[p] ?? null) };
+  }));
   showSuspects($("#dash-warning"), s.suspect_values, cur);
 }
 /* Valuations whose figure looks mis-read (e.g. 2,300 for 2,300,000): listed, kept out of averages. */
@@ -397,7 +401,7 @@ function wireBasisKpi() {
     try { localStorage.setItem("pis_basis", pick.value); } catch (_) {}
     $("#basis-value").textContent = r ? `${cur} ${fmt(r.mean)}${r.per_year ? " p.a." : ""}` : "—";
     $("#basis-sub").textContent = r
-      ? `${r.count} valuation${r.count === 1 ? "" : "s"} · median ${fmt(r.median)}${r.per_sqm ? ` · ${cur} ${fmt(r.per_sqm)} per m²` : ""}`
+      ? `${r.count} valuation${r.count === 1 ? "" : "s"} · median ${fmt(r.median)}`
       : "No valuations on this basis yet";
   };
   pick.onchange = show;
@@ -407,10 +411,9 @@ function renderBasisTable(box, rows, cur) {
   if (!box) return;
   if (!rows.length) { box.innerHTML = '<p class="muted">No valuations yet.</p>'; return; }
   box.innerHTML = table(["Basis of value", { t: "Valuations", num: true }, { t: `Average (${cur})`, num: true }, { t: "Median", num: true },
-    { t: "Lowest", num: true }, { t: "Highest", num: true }, { t: "Average per m²", num: true }],
+    { t: "Lowest", num: true }, { t: "Highest", num: true }],
   rows.map((r) => [esc(r.basis) + (r.per_year ? ' <span class="muted small">(per year)</span>' : ""), { v: r.count, num: true },
-    { v: fmt(r.mean), num: true }, { v: fmt(r.median), num: true }, { v: fmt(r.min), num: true }, { v: fmt(r.max), num: true },
-    { v: r.per_sqm ? fmt(r.per_sqm) : "—", num: true }]));
+    { v: fmt(r.mean), num: true }, { v: fmt(r.median), num: true }, { v: fmt(r.min), num: true }, { v: fmt(r.max), num: true }]));
 }
 
 /* Dashboard "Analysis by basis of value": pick Market Value, Market Rent, Fair Value ... or
@@ -480,17 +483,15 @@ async function loadBasisAnalysis(choice) {
     tiles.push(kpi(`Average ${word(b)} — ${b}`, o ? `${cur} ${fmt(o.mean)}${yr(b)}` : "—",
       o ? `${o.count} valuation${o.count === 1 ? "" : "s"} · median ${fmt(o.median)}` : "none yet"));
     if (o) tiles.push(kpi(`Range — ${b}`, `${fmt(o.min)} – ${fmt(o.max)}`, `${cur}${yr(b)}`));
-    if (o && o.per_sqm) tiles.push(kpi(`Average per m² — ${b}`, `${cur} ${fmt(o.per_sqm)}`, "valuation opinion ÷ floor area"));
   });
   if (a.yield_pct != null) tiles.push(kpi("Implied yield", `${fmt(a.yield_pct, 2)}%`, "average rent ÷ average value"));
   const head = (first) => [first, ...bases.flatMap((b) => [{ t: bases.length > 1 ? `${b}: no.` : "Valuations", num: true },
     { t: `${bases.length > 1 ? b + ": " : ""}average (${cur})`, num: true },
-    ...(b === "Market Rent" ? [] : [{ t: `${bases.length > 1 ? b + ": " : ""}per m²`, num: true }])]),
+    ]),
     ...(bases.length > 1 && bases.includes("Market Rent") ? [{ t: "Yield", num: true }] : [])];
   const body = (rows) => rows.map((r) => [esc(r.name), ...bases.flatMap((b) => {
     const o = r[b];
-    return [{ v: o ? o.count : "—", num: true }, { v: o ? fmt(o.mean) : "—", num: true },
-      ...(b === "Market Rent" ? [] : [{ v: o && o.per_sqm ? fmt(o.per_sqm) : "—", num: true }])];
+    return [{ v: o ? o.count : "—", num: true }, { v: o ? fmt(o.mean) : "—", num: true }];
   }), ...(bases.length > 1 && bases.includes("Market Rent") ? [{ v: r.yield_pct != null ? `${fmt(r.yield_pct, 2)}%` : "—", num: true }] : [])]);
   const sect = (title, first, rows) => (rows.length ? `<h4>${title}</h4>${table(head(first), body(rows))}` : "");
   box.innerHTML = `<div class="kpis">${tiles.join("")}</div>
@@ -1477,7 +1478,7 @@ $("#import-file").addEventListener("change", async (e) => {
 });
 
 /* ---------------- Intelligence ---------------- */
-const METRIC_OPTIONS = [["value_per_sqm", "Valuation opinion / m²"], ["capital_value", "Valuation opinion"], ["annual_rent", "Rental opinion (annual)"], ["rent_per_sqm", "Rental opinion / m²"],
+const METRIC_OPTIONS = [["capital_value", "Valuation opinion"], ["annual_rent", "Rental opinion (annual)"], ["rent_per_sqm", "Rental opinion / m²"],
   ["yield_pct", "Yield %"], ["cost_per_sqm", "Construction cost / m²"], ["avg_price", "Avg house price"], ["avg_monthly_rent", "Avg monthly rent"], ["affordability_ratio", "Affordability ratio"]];
 $("#intel-filters").innerHTML = filterFormHTML(false);
 $("#trend-metric").innerHTML = METRIC_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
@@ -1546,7 +1547,6 @@ async function loadIntel() {
   renderBasisTable($("#intel-bases"), s.by_basis || [], s.currency || "");
   const chosen = f.basis_of_value;
   if (chosen && s.metrics.capital_value) s.metrics.capital_value.label = `Average ${chosen}`;
-  if (chosen && s.metrics.value_per_sqm) s.metrics.value_per_sqm.label = `${chosen} per m²`;
   const cards = [kpi("Records", fmt(s.record_count), s.scope)];
   Object.entries(s.metrics).forEach(([k, m]) => {
     const ratio = k === "yield_pct" || k === "affordability_ratio" || k === "supply_units";
@@ -1568,15 +1568,15 @@ async function loadCross() {
   const f = intelFilters(); delete f.category;
   const c = await api("/api/analytics/cross?" + qs(f));
   lineChart("cross-chart", c.rows.map((r) => r.period), [
-    { label: `Valuation opinion / m² (${c.currency || ""})`, data: c.rows.map((r) => r.value_per_sqm) },
-    { label: "Construction cost / m²", data: c.rows.map((r) => r.cost_per_sqm) },
+    { label: `Main building (${c.currency || ""} / m²)`, data: c.rows.map((r) => r.cost_per_sqm) },
+    { label: `External works (${c.currency || ""} / m²)`, data: c.rows.map((r) => r.external_works_rate) },
   ], { type: "bar" });
 }
 async function loadBreakdown() {
   const b = await api("/api/analytics/breakdown?" + qs({ ...intelFilters(), group_by: $("#group-by").value }));
   const groups = $("#group-by").value.split(",");
   if (!b.rows.length) { $("#breakdown-table").innerHTML = '<p class="muted">No data.</p>'; return; }
-  const cols = [["value_per_sqm", "Valuation opinion/m²"], ["capital_value", "Valuation opinion"], ["annual_rent", "Rental opinion"], ["yield_pct", "Yield %"], ["cost_per_sqm", "Cost/m²"], ["avg_price", "Avg price"], ["avg_monthly_rent", "Avg rent/mo"]]
+  const cols = [["capital_value", "Valuation opinion"], ["annual_rent", "Rental opinion"], ["yield_pct", "Yield %"], ["cost_per_sqm", "Cost/m²"], ["avg_price", "Avg price"], ["avg_monthly_rent", "Avg rent/mo"]]
     .filter(([k]) => b.rows.some((r) => r[k] != null));
   $("#breakdown-table").innerHTML = `<p class="muted small">Averages in ${esc(b.currency || "—")}</p>` + table(
     [...groups.map((g) => g.replace("_", " ")), { t: "Records", num: true }, ...cols.map(([, l]) => ({ t: l, num: true }))],
