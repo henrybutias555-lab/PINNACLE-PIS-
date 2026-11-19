@@ -31,6 +31,53 @@ def _type_for(name: str) -> str | None:
     return file_type_for(name) or EXTRA_TYPES.get(Path(name).suffix.lower())
 
 
+def _read(data: bytes, name: str, ftype: str) -> tuple[str, dict]:
+    """(text, details). PDFs are read as papers: flowing text, cover pages removed, title/journal/year/abstract."""
+    from ..services import paper_text
+
+    details: dict = {}
+    text = ""
+    if ftype == "pdf":
+        try:
+            text, details = paper_text.read_paper_pdf(data)
+        except Exception:
+            text = ""
+        if len(text.strip()) < 200:          # a scanned PDF: fall back to OCR
+            text = paper_text.join_paragraphs(paper_text.clean_lines(_text_of(data, name, ftype))) or text
+    else:
+        text = _text_of(data, name, ftype)
+        if ftype in ("docx", "txt"):
+            text = paper_text.join_paragraphs(paper_text.clean_lines(text)) if ftype == "txt" else text
+            details["abstract"] = paper_text.abstract_of(text)
+    return text, {k: v for k, v in details.items() if v}
+
+
+def _guess_category(text: str, details: dict) -> str:
+    low = (text or "")[:6000].lower()
+    if details.get("source") or details.get("abstract") or re.search(r"\bjournal\b|\bdoi\b|\breferences\b|et al\.", low):
+        return "Academic papers"
+    if re.search(r"requirements? document|\bprd\b|policy|procedure|terms of reference", low):
+        return "Company documents"
+    if re.search(r"construction cost|bill of quantities|cost per (?:m|sq)", low):
+        return "Construction & cost"
+    if re.search(r"housing|rent(?:al)? market|affordab", low):
+        return "Housing"
+    if re.search(r"valuation|valuer|market value", low):
+        return "Valuation practice"
+    return "Other"
+
+
+def _author_of(details: dict) -> str | None:
+    parts = [details.get("author"), details.get("source")]
+    return " · ".join(p for p in parts if p)[:200] or None
+
+
+def _looks_auto(value: str | None) -> bool:
+    """Empty, or text taken from a download cover page rather than the paper."""
+    from ..services.paper_text import _COVER_LINE
+    return not value or bool(_COVER_LINE.search(value)) or "researchgate" in value.lower()
+
+
 def _text_of(data: bytes, name: str, ftype: str) -> str:
     suffix = Path(name).suffix.lower()
     with tempfile.TemporaryDirectory() as tmp:
@@ -156,12 +203,14 @@ async def upload_doc(request: Request, file: UploadFile = File(...), title: str 
         raise HTTPException(413, f"{name} exceeds the {settings.max_upload_mb:g} MB upload limit")
     if not data:
         raise HTTPException(400, "The file is empty")
-    text = _text_of(data, name, ftype)[:MAX_TEXT]
+    text, details = _read(data, name, ftype)
+    text = text[:MAX_TEXT]
     doc = ResearchDoc(
-        title=(title or "").strip()[:300] or _title_of(text, name)[:300],
-        category=category if category in CATEGORIES else "Other",
-        tags=_tags(tags), summary=(summary or "").strip()[:2000] or _summary_of(text),
-        author=(author or "").strip()[:200] or None, year=(year or "").strip()[:20] or None,
+        title=(title or "").strip()[:300] or (details.get("title") or _title_of(text, name))[:300],
+        category=category if category in CATEGORIES else _guess_category(text, details),
+        tags=_tags(tags), summary=(summary or "").strip()[:2000] or details.get("abstract") or _summary_of(text),
+        author=(author or "").strip()[:200] or _author_of(details),
+        year=(year or "").strip()[:20] or details.get("year"),
         filename=name[:300], file_type=ftype, file_size=len(data), file_data=data, text=text or None,
         uploaded_by_id=user.id, uploaded_by_email=user.email)
     db.add(doc)
@@ -214,6 +263,29 @@ def delete_doc(doc_id: int, request: Request, user: User = Depends(require_role(
     db.delete(doc)
     db.commit()
     log_activity(db, user, "research_deleted", title[:255], request=request)
+
+
+@router.post("/{doc_id}/reread")
+def reread_doc(doc_id: int, request: Request, user: User = Depends(require_role("junior")),
+               db: Session = Depends(get_db)):
+    """Read the stored file again with the current reader. The text is replaced; title, summary, author and
+    year are filled only where they are blank or came from a download cover page."""
+    doc = db.get(ResearchDoc, doc_id)
+    if doc is None:
+        raise HTTPException(404, "Document not found")
+    text, details = _read(doc.file_data, doc.filename, doc.file_type)
+    doc.text = text[:MAX_TEXT] or None
+    if _looks_auto(doc.title) and (details.get("title") or text):
+        doc.title = (details.get("title") or _title_of(text, doc.filename))[:300]
+    if _looks_auto(doc.summary):
+        doc.summary = details.get("abstract") or _summary_of(text)
+    if not doc.author:
+        doc.author = _author_of(details)
+    if not doc.year and details.get("year"):
+        doc.year = details["year"]
+    db.commit()
+    log_activity(db, user, "research_reread", doc.title[:255], request=request)
+    return _out(doc)
 
 
 @router.post("/{doc_id}/ask")

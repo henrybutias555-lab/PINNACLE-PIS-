@@ -1789,3 +1789,32 @@ def test_discussions_chat_with_papers(client, admin, make_user, monkeypatch):
     assert len(client.patch(f"/api/discussions/{chat['id']}", headers=junior, json={"paper_ids": [a["id"]]}).json()["papers"]) == 1
     assert client.post("/api/discussions", headers=junior, json={"paper_ids": []}).status_code == 422
     assert client.delete(f"/api/discussions/{chat['id']}", headers=junior).status_code == 204
+
+
+def test_research_paper_pdf_is_read_properly(client, admin, tmp_path):
+    from tests.fixtures.make_paper_pdf import build
+
+    pdf = tmp_path / "Dual_rate_taxed_valuation.pdf"
+    build(str(pdf))
+    doc = client.post("/api/research", headers=admin, files={"file": (pdf.name, pdf.read_bytes(), "application/pdf")}).json()
+    assert doc["title"] == "Dual rate taxed valuation: A more rational approach"
+    assert doc["category"] == "Academic papers" and doc["year"] == "2010"
+    assert "Journal of Property Investment & Finance" in doc["author"] and "Mensah" in doc["author"]
+    assert doc["summary"].startswith("This paper examines the consequences of sinking fund")
+    text = client.get(f"/api/research/{doc['id']}", headers=admin).json()["text"]
+    assert "researchgate" not in text.lower() and "discussions, stats" not in text and "|" not in text
+    assert "defunct because of the flawed reinvestment principle" in text
+
+    # a document saved earlier with the cover page as its title is fixed by "Re-read"
+    from app.database import SessionLocal
+    from app.models import ResearchDoc
+    with SessionLocal() as db:
+        d = db.get(ResearchDoc, doc["id"])
+        d.title = "discussions, stats, and author profiles for this publication at: https://www.researchgate.net/x"
+        d.summary = "See discussions, stats, and author profiles for this publication"
+        d.text = "junk |||||||| text ||||||"
+        db.commit()
+    again = client.post(f"/api/research/{doc['id']}/reread", headers=admin).json()
+    assert again["title"] == "Dual rate taxed valuation: A more rational approach"
+    assert again["summary"].startswith("This paper examines")
+    assert "|" not in client.get(f"/api/research/{doc['id']}", headers=admin).json()["text"]

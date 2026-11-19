@@ -1680,7 +1680,7 @@ async function loadResearch() {
     researchCats = await api("/api/research/categories");
     const opts = researchCats.categories.map((c) => `<option>${esc(c)}</option>`).join("");
     $("#research-search [name=category]").insertAdjacentHTML("beforeend", opts);
-    $("#research-upload [name=category]").innerHTML = opts;
+    $("#research-upload [name=category]").innerHTML = '<option value="">Choose for me</option>' + opts;
   }
   $("#research-upload-card").hidden = !can("junior");
   loadDiscussions().catch(() => {});
@@ -1701,7 +1701,7 @@ async function loadResearch() {
       ${(d.tags || []).length ? `<p>${d.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join(" ")}</p>` : ""}
       <div class="row gap">${d.has_text ? '<button class="btn small primary rs-discuss">💬 Discuss</button><button class="btn small rs-ask">Quick question</button><button class="btn small rs-read">Read</button>' : ""}
         <button class="btn small rs-dl">Download</button>
-        ${can("junior") ? '<button class="btn small rs-edit">Edit details</button>' : ""}
+        ${can("junior") ? '<button class="btn small rs-edit">Edit details</button><button class="btn small rs-reread" title="Read the file again with the latest reader">↻ Re-read</button>' : ""}
         ${can("senior") ? '<button class="btn small danger rs-del">Delete</button>' : ""}</div>
     </article>`).join("");
   $$(".research-doc", box).forEach((card) => {
@@ -1711,6 +1711,9 @@ async function loadResearch() {
     $(".rs-discuss", card)?.addEventListener("click", () => discussPaper(Number(id)).catch((e) => toast(e.message, true)));
     $(".rs-dl", card).onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
     $(".rs-edit", card)?.addEventListener("click", () => editResearch(d));
+    $(".rs-reread", card)?.addEventListener("click", async () => {
+      try { await api(`/api/research/${id}/reread`, { method: "POST" }); toast("Read again"); loadResearch(); } catch (e) { toast(e.message, true); }
+    });
     $(".rs-del", card)?.addEventListener("click", async () => {
       if (!confirm(`Delete “${d.title}” from the Research Bank?`)) return;
       try { await api(`/api/research/${id}`, { method: "DELETE" }); toast("Document deleted"); loadResearch(); } catch (e) { toast(e.message, true); }
