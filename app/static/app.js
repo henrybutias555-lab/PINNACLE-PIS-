@@ -1825,6 +1825,48 @@ async function openDiscussion(id) {
 $("#new-discussion").addEventListener("click", () => newDiscussion().catch((e) => toast(e.message, true)));
 
 const researchChats = {};   // questions asked per document, kept while the page is open
+/* PDF pages drawn with the bundled PDF.js, so the original looks the same on phones and computers. */
+async function loadPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((ok, bad) => {
+    const s = document.createElement("script");
+    s.src = `/static/vendor/pdfjs/pdf.min.js?v=${PAGE_VERSION || ""}`; s.onload = ok; s.onerror = bad;
+    document.head.appendChild(s);
+  });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = `/static/vendor/pdfjs/pdf.worker.min.js?v=${PAGE_VERSION || ""}`;
+  return window.pdfjsLib;
+}
+async function renderPdf(box, buf) {
+  const lib = await loadPdfJs();
+  const pdf = await lib.getDocument({ data: buf }).promise;
+  box.innerHTML = `<p class="muted small pdf-count">${pdf.numPages} page${pdf.numPages === 1 ? "" : "s"}</p>`;
+  for (let n = 1; n <= pdf.numPages; n++) {
+    if (!document.body.contains(box)) return;            // reader closed
+    const page = await pdf.getPage(n);
+    const width = Math.max(280, box.clientWidth - 8);
+    const scale = width / page.getViewport({ scale: 1 }).width;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const vp = page.getViewport({ scale: scale * dpr });
+    const canvas = document.createElement("canvas");
+    canvas.width = vp.width; canvas.height = vp.height; canvas.className = "pdf-page";
+    canvas.setAttribute("aria-label", `Page ${n}`);
+    box.appendChild(canvas);
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+  }
+}
+async function showOriginal(box, id, d) {
+  try {
+    const v = await api(`/api/research/${id}/view`);
+    if (v.kind === "html") { box.innerHTML = `<div class="doc-html">${v.html}</div>`; return; }
+    if (v.kind === "text") { box.innerHTML = `<pre class="doc-pre">${esc(d.text || "")}</pre>`; return; }
+    const res = await api(`/api/research/${id}/file?inline=true`, { raw: true });
+    if (v.kind === "image") { box.innerHTML = `<img class="doc-img" alt="${esc(d.title)}" src="${URL.createObjectURL(await res.blob())}">`; return; }
+    box.innerHTML = '<p class="muted">Opening the PDF…</p>';
+    await renderPdf(box, await res.arrayBuffer());
+  } catch (e) {
+    box.innerHTML = `<p class="muted">The original can't be shown here (${esc(e.message || "error")}). Use <b>Download original</b> or the <b>Text</b> tab.</p>`;
+  }
+}
 async function readResearch(id, q, focusAsk = false, back = null) {
   const d = await api(`/api/research/${id}?${qs({ q })}`);
   const body = (d.text || "").split(/\n+/).map((line) => line.trim()).filter(Boolean)
@@ -1835,14 +1877,25 @@ async function readResearch(id, q, focusAsk = false, back = null) {
       <form class="row gap rs-ask-form"><input name="question" maxlength="1000" placeholder="💬 Ask this document, e.g. What are the success metrics?" autocomplete="off"><button class="btn small primary">Ask</button></form>
       <div class="ask-log"></div>
     </section>
-    <form class="row gap rs-find"><input name="q" value="${esc(q || "")}" placeholder="Find in this document"><button class="btn small">Find</button></form>
-    <div class="reader">${body || '<p class="muted">No readable text in this file. Download it to view.</p>'}</div>`);
+    <div class="view-tabs" role="tablist"><button type="button" class="tab-btn" data-v="orig">📄 Original</button><button type="button" class="tab-btn" data-v="text">Text (search)</button></div>
+    <div class="view-pane" data-v="orig"><div class="orig-view"><p class="muted">Loading…</p></div></div>
+    <div class="view-pane" data-v="text" hidden>
+      <form class="row gap rs-find"><input name="q" value="${esc(q || "")}" placeholder="Find in this document"><button class="btn small">Find</button></form>
+      <div class="reader">${body || '<p class="muted">No readable text in this file. Download it to view.</p>'}</div></div>`);
+  const setView = (v) => {
+    $$(".view-tabs .tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.v === v));
+    $$(".view-pane").forEach((p) => (p.hidden = p.dataset.v !== v));
+  };
+  $$(".view-tabs .tab-btn").forEach((b) => (b.onclick = () => setView(b.dataset.v)));
+  setView(q ? "text" : "orig");             // the original form by default; the text view when searching
+  showOriginal($(".orig-view"), id, d);
   $("#rs-dl2").onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
   if (back) $("#rs-back").onclick = back;
   $(".rs-find").onsubmit = (e) => { e.preventDefault(); readResearch(id, new FormData(e.target).get("q"), false, back); };
   const log = $(".ask-log");
   const chat = (researchChats[id] = researchChats[id] || []);
   const showInDoc = (quote) => {
+    setView("text");
     const norm = (x) => x.replace(/\s+/g, " ").trim().toLowerCase();
     const paras = $$(".reader p, .reader h4");
     // a quote may join several lines ("Heading: line; line"): find the first piece that is in the text

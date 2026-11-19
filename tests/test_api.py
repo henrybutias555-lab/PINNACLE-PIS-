@@ -1818,3 +1818,32 @@ def test_research_paper_pdf_is_read_properly(client, admin, tmp_path):
     assert again["title"] == "Dual rate taxed valuation: A more rational approach"
     assert again["summary"].startswith("This paper examines")
     assert "|" not in client.get(f"/api/research/{doc['id']}", headers=admin).json()["text"]
+
+
+def test_research_original_view(client, admin, tmp_path):
+    import io as _io
+
+    from tests.fixtures.make_paper_pdf import build
+
+    pdf = tmp_path / "paper.pdf"; build(str(pdf))
+    p = client.post("/api/research", headers=admin, files={"file": ("paper.pdf", pdf.read_bytes(), "application/pdf")}).json()
+    assert client.get(f"/api/research/{p['id']}/view", headers=admin).json()["kind"] == "pdf"
+    r = client.get(f"/api/research/{p['id']}/file?inline=true", headers=admin)
+    assert r.headers["content-disposition"].startswith("inline") and r.content[:4] == b"%PDF"
+
+    d = docx.Document()
+    d.add_heading("Scope of Data", level=1)
+    d.add_paragraph("Valuation reports").runs[0].bold = True
+    t = d.add_table(rows=2, cols=2); t.cell(0, 0).text = "Item"; t.cell(0, 1).text = "Rate"; t.cell(1, 0).text = "Ground floor"; t.cell(1, 1).text = "8,000"
+    buf = _io.BytesIO(); d.save(buf)
+    w = client.post("/api/research", headers=admin, files={"file": ("w.docx", buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}).json()
+    v = client.get(f"/api/research/{w['id']}/view", headers=admin).json()
+    assert v["kind"] == "html" and "<h3>Scope of Data</h3>" in v["html"] and "<b>Valuation reports</b>" in v["html"]
+    assert "<th>Item</th>" in v["html"] and "<td>8,000</td>" in v["html"]
+    # text in a document is escaped, never run as HTML
+    d2 = docx.Document(); d2.add_paragraph("<script>alert(1)</script>")
+    b2 = _io.BytesIO(); d2.save(b2)
+    x = client.post("/api/research", headers=admin, files={"file": ("x.docx", b2.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}).json()
+    assert "<script>" not in client.get(f"/api/research/{x['id']}/view", headers=admin).json()["html"]

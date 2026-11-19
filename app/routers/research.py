@@ -265,14 +265,9 @@ def delete_doc(doc_id: int, request: Request, user: User = Depends(require_role(
     log_activity(db, user, "research_deleted", title[:255], request=request)
 
 
-@router.post("/{doc_id}/reread")
-def reread_doc(doc_id: int, request: Request, user: User = Depends(require_role("junior")),
-               db: Session = Depends(get_db)):
-    """Read the stored file again with the current reader. The text is replaced; title, summary, author and
-    year are filled only where they are blank or came from a download cover page."""
-    doc = db.get(ResearchDoc, doc_id)
-    if doc is None:
-        raise HTTPException(404, "Document not found")
+def reread(doc: ResearchDoc) -> None:
+    """Read the stored file again; replace the text and fill title / summary / author / year where blank or
+    taken from a download cover page."""
     text, details = _read(doc.file_data, doc.filename, doc.file_type)
     doc.text = text[:MAX_TEXT] or None
     if _looks_auto(doc.title) and (details.get("title") or text):
@@ -283,6 +278,30 @@ def reread_doc(doc_id: int, request: Request, user: User = Depends(require_role(
         doc.author = _author_of(details)
     if not doc.year and details.get("year"):
         doc.year = details["year"]
+    if doc.category == "Company documents" and _guess_category(text, details) == "Academic papers":
+        doc.category = "Academic papers"
+
+
+@router.get("/{doc_id}/view")
+def view_doc(doc_id: int, _: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """How to show the document in its original form (PDF pages, Word formatting, Excel tables ...)."""
+    from ..services.doc_view import view
+
+    doc = db.get(ResearchDoc, doc_id)
+    if doc is None:
+        raise HTTPException(404, "Document not found")
+    return {"id": doc.id, "file_type": doc.file_type, **view(doc)}
+
+
+@router.post("/{doc_id}/reread")
+def reread_doc(doc_id: int, request: Request, user: User = Depends(require_role("junior")),
+               db: Session = Depends(get_db)):
+    """Read the stored file again with the current reader. The text is replaced; title, summary, author and
+    year are filled only where they are blank or came from a download cover page."""
+    doc = db.get(ResearchDoc, doc_id)
+    if doc is None:
+        raise HTTPException(404, "Document not found")
+    reread(doc)
     db.commit()
     log_activity(db, user, "research_reread", doc.title[:255], request=request)
     return _out(doc)
@@ -315,7 +334,7 @@ def download_doc(doc_id: int, request: Request, inline: bool = False, user: User
     doc = db.get(ResearchDoc, doc_id)
     if doc is None or not doc.file_data:
         raise HTTPException(404, "File not found")
-    log_activity(db, user, "research_downloaded", doc.title[:255], request=request)
+    log_activity(db, user, "research_viewed" if inline else "research_downloaded", doc.title[:255], request=request)
     media = mimetypes.guess_type(doc.filename)[0] or "application/octet-stream"
     disposition = "inline" if inline and media in ("application/pdf", "text/plain") or (inline and media.startswith("image/")) \
         else "attachment"
