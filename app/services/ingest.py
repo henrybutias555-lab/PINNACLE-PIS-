@@ -35,6 +35,16 @@ def _derive_rates(rec: dict) -> None:
         rec["yield_pct"] = round(rent / value * 100, 2)
 
 
+def _grades_only(rec: dict) -> None:
+    """Rating boxes hold a grade (Excellent / Very good, Good, Fair, Poor, Dilapidated), never a sentence."""
+    from ..routers.records import RATING_FIELDS
+    grades = {g.lower() for _, g in rules._GRADES}
+    for field in (*RATING_FIELDS, "state_of_repair"):
+        if rec.get(field) and str(rec[field]).lower() not in grades:
+            rec.pop(field, None)
+            (rec.get("autofilled") or {}).pop(field, None)
+
+
 def process_report(db: Session, report: Report) -> Report:
     # Work on a temporary copy: the original lives in the database.
     suffix = Path(report.filename).suffix.lower()
@@ -109,6 +119,10 @@ def _process(db: Session, report: Report, path: Path) -> Report:
                 rec[field] = normalise_rating(rec[field])
         if rec.get("state_of_repair"):
             rec["state_of_repair"] = normalise_rating(rec["state_of_repair"], "repair")
+        grades = {g.lower() for _, g in rules._GRADES}
+        for field in (*RATING_FIELDS, "state_of_repair"):
+            if rec.get(field) and str(rec[field]).lower() not in grades:
+                rec.pop(field, None)       # e.g. a whole sentence about demand: not a grade
         if rec.get("user_conformity"):
             rec["user_conformity"] = normalise_rating(rec["user_conformity"], "conformity")
         # The report's own grade wins (e.g. the reading said Good, the report says Very good).
@@ -141,6 +155,7 @@ def _process(db: Session, report: Report, path: Path) -> Report:
             rec[field] = value
         if filled:
             rec["autofilled"] = {**(rec.get("autofilled") or {}), **{field: reason for field, (_, reason) in filled.items()}}
+        _grades_only(rec)
     report.draft = draft
     report.report_type = draft.get("report_type")
     report.title = (draft.get("title") or report.filename)[:500]

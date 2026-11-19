@@ -139,10 +139,18 @@ def reprocess(report_id: int, request: Request, user: User = Depends(require_rol
     return _out(db, report)
 
 
+def _same(a, b) -> bool:
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return abs(float(a) - float(b)) < 0.005
+    if isinstance(a, str) and isinstance(b, str):
+        return " ".join(a.split()).lower() == " ".join(b.split()).lower()
+    return a == b
+
+
 def _keep_saved_values(db: Session, report: Report) -> None:
-    """A re-run must not lose what was already approved. Where the new reading left a field blank,
-    or only guessed it (auto-filled), the saved value is kept; values the new reading actually found
-    stay as the proposal (the reviewer sees the saved value beside them)."""
+    """A re-run must not lose or churn what was already approved. Every saved value stays; where the
+    new reading found something different it becomes a suggestion the reviewer can take field by field
+    ("Use this"). Fields that were blank take the new reading's value."""
     saved = list(db.scalars(select(Record).where(Record.report_id == report.id).order_by(Record.id)))
     draft = dict(report.draft or {})
     records = [dict(r) for r in draft.get("records", [])]
@@ -157,10 +165,15 @@ def _keep_saved_values(db: Session, report: Report) -> None:
                 merged = list(dict.fromkeys([*(value or []), *(rec.get("tags") or [])]))
                 rec["tags"] = merged
                 continue
-            if rec.get(field) in (None, "", [], {}) or (field in guessed and rec.get(field) != value):
+            new = rec.get(field)
+            if new in (None, "", [], {}) or (field in guessed and new != value):
                 rec[field] = value
                 guessed.pop(field, None)
                 kept[field] = "kept from the saved record (not found in this reading)"
+            elif not _same(new, value):
+                rec.setdefault("suggested", {})[field] = new
+                rec[field] = value
+                guessed.pop(field, None)
         if guessed:
             rec["autofilled"] = guessed
         else:

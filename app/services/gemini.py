@@ -82,6 +82,9 @@ def _thinking(types):
     return None
 
 
+EXTRACTION_SEED = 20251119   # fixed: repeated readings of one report stay as alike as the model allows
+
+
 def _call(system: str, contents: list, *, max_tokens: int, json_schema: dict | None = None) -> str:
     from google.genai import errors, types
 
@@ -92,6 +95,9 @@ def _call(system: str, contents: list, *, max_tokens: int, json_schema: dict | N
             max_output_tokens=max_tokens,
             **({"thinking_config": thinking} if thinking else {}),
             **({"response_mime_type": "application/json", "response_json_schema": json_schema} if json_schema else {}),
+            # Extraction: the same report should read the same way every time.
+            **({"seed": EXTRACTION_SEED} if json_schema else {}),
+            **({"temperature": 0.0} if json_schema and settings.gemini_model.startswith("gemini-2") else {}),
         )
 
     try:

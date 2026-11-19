@@ -273,3 +273,7 @@ label.gap .ns-tag { display: block; }
 .lock-note { line-height: 1.5; }
 .lock-note #open-source { margin-left: .4rem; }
 .sheet tr:has([data-id][disabled]) td { background: color-mix(in srgb, var(--muted) 6%, transparent); }
+
+.suggest { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: .76rem; color: var(--muted);
+  border-left: 3px solid var(--brand-2, #c9a227); padding: .2rem .5rem; margin-top: .15rem; }
+.suggest b { color: var(--text); font-weight: 600; }

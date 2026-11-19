@@ -498,8 +498,12 @@ def test_reextract_approved_report_and_update(client, admin, monkeypatch):
     assert body["status"] == "confirmed" and body["extraction_method"] == "ai" and body["draft"]["reextracted"]
     assert client.get(f"/api/records/{saved[0]['id']}", headers=admin).json()["property_type"] == "land"
 
-    # Apply: the same record (same id) is updated.
+    # The saved value stays; the different new reading is a suggestion, a blank field is filled.
     new = body["draft"]["records"]
+    assert new[0]["property_type"] == "land" and new[0]["suggested"]["property_type"] == "residential"
+    assert new[0]["city"] == "Accra"
+    new[0]["property_type"] = new[0]["suggested"]["property_type"]          # reviewer taps "Use this"
+    # Apply: the same record (same id) is updated.
     r = client.post(f"/api/reports/{rep['id']}/update-records", headers=admin, json={"records": new})
     assert r.status_code == 200, r.text
     assert "reextracted" not in r.json()["draft"]
