@@ -1402,3 +1402,13 @@ def test_sign_in_location(client, admin):
     # nonsense coordinates are rejected; not signed in is rejected
     assert client.post("/api/auth/location", headers=h, json={"latitude": 500, "longitude": 0}).status_code == 422
     assert client.post("/api/auth/location", json={"latitude": 5, "longitude": 0}).status_code == 401
+
+
+def test_only_admins_see_locations(client, admin, make_user):
+    for role in ("viewer", "junior", "senior"):
+        h = make_user(role)
+        assert client.get("/api/users", headers=h).status_code == 403
+        assert client.get("/api/activity", headers=h).status_code == 403
+        assert client.get("/api/activity?action=sign_in_location", headers=h).status_code == 403
+        assert client.patch("/api/users/1", headers=h, json={"role": "admin"}).status_code == 403
+    assert client.get("/api/users", headers=admin).status_code == 200
