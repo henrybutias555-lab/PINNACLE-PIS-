@@ -1847,3 +1847,40 @@ def test_research_original_view(client, admin, tmp_path):
     x = client.post("/api/research", headers=admin, files={"file": ("x.docx", b2.getvalue(),
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}).json()
     assert "<script>" not in client.get(f"/api/research/{x['id']}/view", headers=admin).json()["html"]
+
+
+def test_gemini_busy_retries_then_other_model(monkeypatch):
+    import time as _time
+
+    from app.config import settings
+    from app.services import gemini
+    from app.services.llm import AIError
+
+    calls = []
+    monkeypatch.setattr(_time, "sleep", lambda s: None)
+    monkeypatch.setattr(settings, "gemini_model", "gemini-3.5-flash-lite")
+    monkeypatch.setattr(gemini, "_fallback_models", lambda: ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash"])
+
+    def once(model, *a, **k):
+        calls.append(model)
+        if model != "gemini-3.6-flash":
+            raise AIError("Gemini service error (503); try again shortly")
+        return "ok"
+    monkeypatch.setattr(gemini, "_call_once", once)
+    assert gemini._call("sys", ["hi"], max_tokens=10) == "ok"
+    assert calls == ["gemini-3.5-flash-lite"] * 3 + ["gemini-3.1-flash-lite", "gemini-3.6-flash"]
+    # a real refusal is not retried
+    calls.clear()
+    monkeypatch.setattr(gemini, "_call_once", lambda m, *a, **k: calls.append(m) or (_ for _ in ()).throw(AIError("Gemini declined to process this document")))
+    try:
+        gemini._call("sys", ["hi"], max_tokens=10)
+        raise AssertionError("should have raised")
+    except AIError as exc:
+        assert "declined" in str(exc) and calls == ["gemini-3.5-flash-lite"]
+
+
+def test_cover_page_found_without_spaces_or_with_ligatures():
+    from app.services.paper_text import _is_cover, clean_lines
+    assert _is_cover("Seediscussions,stats,andauthorprofilesforthispublicationat:https://www.researchgate.net/publication/1")
+    assert _is_cover("See discussions, stats, and author proﬁles for this publication at: x")
+    assert clean_lines("21 PUBLICATIONS 160 CITATIONS\nSEE PROFILE\nReal text") == ["Real text"]
