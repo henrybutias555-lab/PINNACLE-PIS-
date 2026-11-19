@@ -34,6 +34,7 @@
         <a data-view="records" href="#records">Data &amp; Search</a>
         <a data-view="intel" href="#intel">Market &amp; Cost Intelligence</a>
         <a data-view="comps" href="#comps">Comparables</a>
+        <a data-view="research" href="#research">Research Bank</a>
         <a data-view="admin" href="#admin" data-min-role="admin">Users &amp; Activity</a>
       </nav>
       <div class="sidebar-foot">
@@ -146,6 +147,30 @@
       </section>
 
       <!-- Comparables -->
+      <section data-page="research" class="page">
+        <header class="page-head"><h2>Research Bank</h2>
+          <p class="muted">The firm's library of reference documents: requirements, market research, policies, industry reports and papers. Search inside every document.</p></header>
+        <form id="research-search" class="card filters">
+          <label class="wide">Search<input name="q" placeholder="words in the title, summary, tags or text…"></label>
+          <label>Category<select name="category"><option value="">All categories</option></select></label>
+          <div class="filter-actions"><button class="btn primary" type="submit">Search</button></div>
+        </form>
+        <details class="card" id="research-upload-card" data-min-role="junior"><summary><b>+ Add a document</b></summary>
+          <form id="research-upload" class="filters">
+            <label class="wide">File (PDF, Word, Excel, PowerPoint, text or image)<input type="file" name="file" required
+              accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.pptx,.png,.jpg,.jpeg,.tif,.tiff,.webp"></label>
+            <label class="wide">Title<input name="title" placeholder="Leave blank to use the document's own title"></label>
+            <label>Category<select name="category"></select></label>
+            <label>Author / source<input name="author" placeholder="e.g. Pinnacle Estate Surveyors"></label>
+            <label>Year<input name="year" placeholder="e.g. 2026"></label>
+            <label class="wide">Tags (comma separated)<input name="tags" placeholder="e.g. prd, requirements, system"></label>
+            <label class="wide">Summary<textarea name="summary" rows="2" placeholder="Leave blank to use the opening of the document"></textarea></label>
+            <div class="filter-actions"><button class="btn primary" type="submit">Add to Research Bank</button></div>
+          </form>
+        </details>
+        <div id="research-list"></div>
+      </section>
+
       <section data-page="comps" class="page">
         <header class="page-head"><h2>Comparable Evidence Finder</h2></header>
         <form id="comp-form" class="card filters">

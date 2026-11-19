@@ -1670,3 +1670,37 @@ def test_forced_sale_value_must_be_below_market_value(client, admin, monkeypatch
         db.commit()
     again = client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin).json()["draft"]["records"][0]
     assert again["forced_sale_value"] is None and any("not below" in w for w in again["warnings"])
+
+
+def test_research_bank(client, admin, make_user):
+    import io as _io
+
+    d = docx.Document()
+    d.add_paragraph("Product Requirements Document (PRD)")
+    d.add_paragraph("Pinnacle Intelligence System is an AI-powered internal platform that extracts, stores and "
+                    "analyses data from professional reports to support valuation and construction cost work.")
+    d.add_paragraph("Success metrics: 60%+ reduction in time spent gathering market and cost evidence.")
+    buf = _io.BytesIO(); d.save(buf)
+    r = client.post("/api/research", headers=admin, files={"file": ("PRD-PIS.docx", buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+                    data={"category": "Company documents", "tags": "PRD, requirements", "author": "Pinnacle Estate Surveyors"})
+    assert r.status_code == 201, r.text
+    doc = r.json()
+    assert doc["title"] == "Product Requirements Document (PRD)" and doc["tags"] == ["prd", "requirements"]
+    assert doc["summary"].startswith("Pinnacle Intelligence System is an AI-powered") and doc["has_text"]
+    # search inside the text, with a snippet
+    found = client.get("/api/research?q=reduction evidence", headers=admin).json()
+    assert found["total"] >= 1 and "reduction" in found["items"][0]["snippet"]
+    assert client.get("/api/research?q=nonexistentword", headers=admin).json()["total"] == 0
+    assert client.get("/api/research?category=Company documents", headers=admin).json()["total"] >= 1
+    full = client.get(f"/api/research/{doc['id']}", headers=admin).json()
+    assert "Success metrics" in full["text"]
+    assert client.get(f"/api/research/{doc['id']}/file", headers=admin).content == buf.getvalue()
+    # roles: viewers read, juniors add/edit, seniors delete
+    viewer, junior = make_user("viewer"), make_user("junior")
+    assert client.get("/api/research", headers=viewer).status_code == 200
+    assert client.post("/api/research", headers=viewer, files={"file": ("x.txt", b"hello world", "text/plain")}).status_code == 403
+    assert client.patch(f"/api/research/{doc['id']}", headers=junior, json={"year": "2025"}).json()["year"] == "2025"
+    assert client.delete(f"/api/research/{doc['id']}", headers=junior).status_code == 403
+    assert client.post("/api/research", headers=admin, files={"file": ("x.exe", b"MZ", "application/octet-stream")}).status_code == 415
+    assert client.delete(f"/api/research/{doc['id']}", headers=admin).status_code == 204

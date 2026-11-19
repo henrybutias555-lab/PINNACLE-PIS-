@@ -287,7 +287,7 @@ function startApp() {
 }
 
 /* ---------------- Routing ---------------- */
-const loaders = { dashboard: loadDashboard, ingest: loadReports, records: loadRecords, intel: loadIntel, comps: () => {}, admin: loadAdmin };
+const loaders = { dashboard: loadDashboard, ingest: loadReports, records: loadRecords, intel: loadIntel, comps: () => {}, research: loadResearch, admin: loadAdmin };
 function route() {
   let view = (location.hash || "#dashboard").slice(1);
   if (!loaders[view]) view = "dashboard";
@@ -1667,6 +1667,93 @@ function addPasswordToggles(root = document) {
 }
 
 /* ---------------- Modal ---------------- */
+/* ---------------- Research Bank ---------------- */
+let researchCats = null;
+const highlight = (text, q) => {
+  const safe = esc(text || "");
+  const terms = (q || "").split(/\s+/).filter((t) => t.length > 1).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return terms.length ? safe.replace(new RegExp(`(${terms.join("|")})`, "gi"), "<mark>$1</mark>") : safe;
+};
+const sizeText = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+async function loadResearch() {
+  if (!researchCats) {
+    researchCats = await api("/api/research/categories");
+    const opts = researchCats.categories.map((c) => `<option>${esc(c)}</option>`).join("");
+    $("#research-search [name=category]").insertAdjacentHTML("beforeend", opts);
+    $("#research-upload [name=category]").innerHTML = opts;
+  }
+  $("#research-upload-card").hidden = !can("junior");
+  const f = formData($("#research-search"));
+  const box = $("#research-list");
+  box.innerHTML = '<p class="muted">Loading…</p>';
+  const res = await api("/api/research?" + qs(f));
+  if (!res.items.length) {
+    box.innerHTML = `<div class="card"><p class="muted">${f.q || f.category ? "No documents match this search." : "The Research Bank is empty. Add the first document above."}</p></div>`;
+    return;
+  }
+  box.innerHTML = `<p class="muted small">${res.total} document${res.total === 1 ? "" : "s"}${f.q ? ` matching “${esc(f.q)}”` : ""}</p>` +
+    res.items.map((d) => `<article class="card research-doc" data-id="${d.id}">
+      <div class="row between"><h3>${highlight(d.title, f.q)}</h3><span class="pill">${esc(d.category)}</span></div>
+      <p class="muted small">${[d.author, d.year].filter(Boolean).map(esc).join(" · ")}${d.author || d.year ? " · " : ""}${esc(d.file_type.toUpperCase())} · ${sizeText(d.file_size)}${d.words ? ` · ${fmt(d.words)} words` : ""} · added ${esc(new Date(d.created_at).toLocaleDateString())}${d.uploaded_by ? ` by ${esc(d.uploaded_by)}` : ""}</p>
+      ${d.summary ? `<p>${highlight(d.summary, f.q)}</p>` : ""}
+      ${d.snippet ? `<p class="snippet small">…${highlight(d.snippet, f.q)}</p>` : ""}
+      ${(d.tags || []).length ? `<p>${d.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join(" ")}</p>` : ""}
+      <div class="row gap">${d.has_text ? '<button class="btn small primary rs-read">Read</button>' : ""}
+        <button class="btn small rs-dl">Download</button>
+        ${can("junior") ? '<button class="btn small rs-edit">Edit details</button>' : ""}
+        ${can("senior") ? '<button class="btn small danger rs-del">Delete</button>' : ""}</div>
+    </article>`).join("");
+  $$(".research-doc", box).forEach((card) => {
+    const id = card.dataset.id, d = res.items.find((x) => String(x.id) === id);
+    $(".rs-read", card)?.addEventListener("click", () => readResearch(id, f.q));
+    $(".rs-dl", card).onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
+    $(".rs-edit", card)?.addEventListener("click", () => editResearch(d));
+    $(".rs-del", card)?.addEventListener("click", async () => {
+      if (!confirm(`Delete “${d.title}” from the Research Bank?`)) return;
+      try { await api(`/api/research/${id}`, { method: "DELETE" }); toast("Document deleted"); loadResearch(); } catch (e) { toast(e.message, true); }
+    });
+  });
+}
+async function readResearch(id, q) {
+  const d = await api(`/api/research/${id}?${qs({ q })}`);
+  const body = (d.text || "").split(/\n+/).map((line) => line.trim()).filter(Boolean)
+    .map((line) => (/^##\s/.test(line) ? `<h4>${highlight(line.replace(/^##\s*/, ""), q)}</h4>` : `<p>${highlight(line, q)}</p>`)).join("");
+  openModal(`<div class="row between"><h3>${esc(d.title)}</h3><div class="row gap"><button class="btn small" id="rs-dl2">Download original</button><button class="btn" onclick="closeModal()">Close</button></div></div>
+    <p class="muted small">${esc(d.category)}${d.author ? ` · ${esc(d.author)}` : ""}${d.year ? ` · ${esc(d.year)}` : ""} · ${esc(d.filename)}</p>
+    <form class="row gap rs-find"><input name="q" value="${esc(q || "")}" placeholder="Find in this document"><button class="btn small">Find</button></form>
+    <div class="reader">${body || '<p class="muted">No readable text in this file. Download it to view.</p>'}</div>`);
+  $("#rs-dl2").onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
+  $(".rs-find").onsubmit = (e) => { e.preventDefault(); readResearch(id, new FormData(e.target).get("q")); };
+  $(".reader mark")?.scrollIntoView({ block: "center" });
+}
+function editResearch(d) {
+  const opts = (researchCats?.categories || []).map((c) => `<option ${c === d.category ? "selected" : ""}>${esc(c)}</option>`).join("");
+  openModal(`<div class="row between"><h3>Edit document details</h3><button class="btn" onclick="closeModal()">Close</button></div>
+    <form id="rs-edit-form" class="filters">
+      <label class="wide">Title<input name="title" value="${esc(d.title)}" required></label>
+      <label>Category<select name="category">${opts}</select></label>
+      <label>Author / source<input name="author" value="${esc(d.author || "")}"></label>
+      <label>Year<input name="year" value="${esc(d.year || "")}"></label>
+      <label class="wide">Tags (comma separated)<input name="tags" value="${esc((d.tags || []).join(", "))}"></label>
+      <label class="wide">Summary<textarea name="summary" rows="4">${esc(d.summary || "")}</textarea></label>
+      <div class="filter-actions"><button class="btn primary">Save</button></div></form>`);
+  $("#rs-edit-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    try { await api(`/api/research/${d.id}`, { method: "PATCH", body }); closeModal(); toast("Saved"); loadResearch(); } catch (err) { toast(err.message, true); }
+  };
+}
+$("#research-search").addEventListener("submit", (e) => { e.preventDefault(); loadResearch().catch((err) => toast(err.message, true)); });
+$("#research-search [name=category]").addEventListener("change", () => loadResearch().catch((err) => toast(err.message, true)));
+$("#research-upload").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  try {
+    const d = await api("/api/research", { method: "POST", body: fd });
+    toast(`Added “${d.title}”`); e.target.reset(); $("#research-upload-card").open = false; loadResearch();
+  } catch (err) { toast(err.message, true); }
+});
+
 function openModal(html) { $("#modal-body").innerHTML = html; addPasswordToggles($("#modal-body")); $("#modal").showModal(); }
 function closeModal() { $("#modal").close(); }
 $("#modal").addEventListener("close", () => { $("#modal-body").innerHTML = ""; });

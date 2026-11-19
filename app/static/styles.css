@@ -281,3 +281,13 @@ label.gap .ns-tag { display: block; }
 .cost-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .5rem; margin: .25rem 0 .5rem; }
 .cost-group { display: flex; flex-direction: column; gap: .1rem; padding: .45rem .6rem; border: 1px solid var(--border); border-radius: 8px; }
 .cost-group b { font-size: 1rem; }
+
+/* Research Bank */
+.research-doc h3 { margin: 0; }
+.research-doc p { margin: .35rem 0; }
+.research-doc .snippet { border-left: 3px solid var(--brand-2, #c9a227); padding: .2rem .6rem; color: var(--muted); }
+.reader { max-height: 65vh; overflow: auto; line-height: 1.55; padding-right: .5rem; }
+.reader h4 { margin: 1rem 0 .3rem; }
+.reader p { margin: .3rem 0; }
+mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px; }
+.rs-find input { flex: 1; min-width: 0; }

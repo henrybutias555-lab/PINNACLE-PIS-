@@ -221,3 +221,26 @@ class ActivityLog(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     accuracy_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ResearchDoc(Base):
+    """A document in the Research Bank (PRDs, market research, policies, papers ...)."""
+
+    __tablename__ = "research_docs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(300))
+    category: Mapped[str] = mapped_column(String(60), default="Other", index=True)
+    tags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    author: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    year: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    filename: Mapped[str] = mapped_column(String(300))
+    file_type: Mapped[str] = mapped_column(String(20))
+    file_size: Mapped[int] = mapped_column(Integer, default=0)
+    file_data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True, deferred=True)
+    uploaded_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    uploaded_by_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
