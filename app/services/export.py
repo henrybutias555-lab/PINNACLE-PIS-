@@ -407,16 +407,16 @@ def cost_items_sheet(book, records: list[Record]) -> None:
     for r in records:
         for i, c in enumerate(r.cost_items or [], start=1):
             c = c or {}
-            rows.append([r.id, i, r.location or r.address, r.property_type, c.get("item"), c.get("area_sqm"),
+            rows.append([r.id, i, r.location or r.address, r.property_type, c.get("item"), c.get("part"), c.get("area_sqm"),
                          c.get("rate"), c.get("amount"), r.cost_per_sqm, r.record_date, r.currency])
     if not rows:
         return
     ws = book.sheet("Rates adopted", "Rates adopted (cost approach / DRC)",
-                    "Each part of the building with its area, rate and amount; 'Construction cost / m²' is the "
-                    "floor-area-weighted rate of the building parts")
-    book.table(ws, ["Ref", "Line", "Location", "Property type", "Item / floor", "Area (m²)", "Rate per m²", "Amount",
+                    "Each line with its area, rate and amount; 'Construction cost / m²' is the floor-area-weighted "
+                    "rate of the main building (its floors); external works are listed but not averaged in")
+    book.table(ws, ["Ref", "Line", "Location", "Property type", "Item / floor", "Part", "Area (m²)", "Rate per m²", "Amount",
                     "Construction cost / m²", "Date of valuation", "Currency"], rows,
-               [None, "0", None, None, None, "#,##0.00", "#,##0", "#,##0", "#,##0", "yyyy-mm-dd", None], blank=BLANK)
+               [None, "0", None, None, None, None, "#,##0.00", "#,##0", "#,##0", "#,##0", "yyyy-mm-dd", None], blank=BLANK)
 
 
 def comparables_sheet(book, records: list[Record]) -> None:

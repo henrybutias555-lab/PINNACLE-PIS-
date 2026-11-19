@@ -34,7 +34,10 @@ _COMPARABLE = {
 }
 _COST_ITEM = {
     "type": "object",
-    "properties": {"item": _STR, "area_sqm": _NUM, "rate": _NUM, "amount": _NUM},
+    "properties": {"item": _STR,
+                   "part": {"type": ["string", "null"],
+                            "description": "Main building (its floors) or External works (tap area, compound, walls ...)"},
+                   "area_sqm": _NUM, "rate": _NUM, "amount": _NUM},
 }
 _BREAKDOWN = {
     "type": "object",

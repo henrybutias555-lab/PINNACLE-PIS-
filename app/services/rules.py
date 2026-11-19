@@ -472,12 +472,33 @@ _PER_SQM = r"(?:per\s*(?:sq\.?\s*(?:m|metre|meter)|m(?:2|²)|square\s*met(?:re|e
 
 _EXTERNAL_WORKS = re.compile(r"boundary|\bwalls?\b|fenc|\bgates?\b|external|landscap|paving|paved|driveway|"
                              r"car ?park|\bland\b|site works|septic|borehole|soak ?away|drain|walkway|"
-                             r"security post|guard ?house|swimming pool|water tank|polytank", re.I)
+                             r"security post|guard ?house|swimming pool|water tank|polytank|tap|compound|"
+                             r"courtyard|yard|kerb|gutter|culvert|lawn|garden|parking|forecourt", re.I)
 _BUILDING_PART = (r"(?:(?:ground|first|second|third|fourth|fifth|upper|lower|top|basement|mezzanine|attic)\s+"
                   r"(?:floor|storey|level)|(?:main|principal)\s+(?:building|house|block)|boys'?\s*quarters?|"
                   r"\bbq\b|out-?(?:building|house)|annex(?:e)?|garage|porch|terrace|balcon(?:y|ies)|"
                   r"boundary wall|fence wall|external works|gate ?house|"
                   r"(?:one|two|three|single|double|multi)[- ]stor(?:e)?y(?: building| house)?)")
+
+
+MAIN_BUILDING, EXTERNAL_WORKS = "Main building", "External works"
+_MAIN_PART = re.compile(r"\b(?:floors?|stor(?:e)?ys?|levels?|main (?:building|house|block)|principal building|"
+                        r"basement|mezzanine|pent ?house|attic|superstructure|substructure|(?:the )?building)\b", re.I)
+
+
+def building_part(item: str | None, given: str | None = None) -> str:
+    """The floors (ground, first ... storey, main building) are the main building; tap area, compound,
+    walls, gate and everything else are external works."""
+    if given:
+        low = str(given).lower()
+        if low.startswith("main") or "building" in low:
+            return MAIN_BUILDING
+        if low.startswith("ext"):
+            return EXTERNAL_WORKS
+    name = item or ""
+    if _MAIN_PART.search(name) and not _EXTERNAL_WORKS.search(name):
+        return MAIN_BUILDING
+    return EXTERNAL_WORKS
 
 
 def _cell_number(cell: str | None) -> float | None:
@@ -493,7 +514,9 @@ def tidy_cost_items(items) -> list[dict]:
     for it in items or []:
         it = dict(it or {})
         row = {"item": (str(it.get("item")).strip()[:120] if it.get("item") else None),
-               "area_sqm": _f(it.get("area_sqm")), "rate": _f(it.get("rate")), "amount": _f(it.get("amount"))}
+               "part": None, "area_sqm": _f(it.get("area_sqm")), "rate": _f(it.get("rate")),
+               "amount": _f(it.get("amount"))}
+        row["part"] = building_part(row["item"], it.get("part"))
         if not row["rate"] and row["amount"] and row["area_sqm"]:
             row["rate"] = round(row["amount"] / row["area_sqm"], 2)
         if not row["amount"] and row["rate"] and row["area_sqm"]:
@@ -512,10 +535,10 @@ def _f(v) -> float | None:
 
 def adopted_rate(items: list[dict]) -> float | None:
     """Construction cost per m² from the rates adopted: the floor-area-weighted average of the
-    building's own rates (ground floor, first floor, boys' quarters ...); walls, fences and other
-    external works are left out unless they are all there is."""
+    main building's rates (its floors); external works (tap area, compound, walls ...) are left out
+    unless they are all there is."""
     rows = [r for r in (items or []) if r.get("rate")]
-    building = [r for r in rows if not _EXTERNAL_WORKS.search(r.get("item") or "")] or rows
+    building = [r for r in rows if building_part(r.get("item"), r.get("part")) == MAIN_BUILDING] or rows
     if not building:
         return None
     if all(r.get("area_sqm") for r in building):

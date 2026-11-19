@@ -1631,3 +1631,16 @@ def test_rates_adopted_per_floor(client, admin, monkeypatch):
     ws = openpyxl.load_workbook(_io.BytesIO(xlsx))["Rates adopted"]
     items = [ws.cell(r, 5).value for r in range(5, ws.max_row + 1)]
     assert "Ground floor" in items and "Boundary wall" in items and "Fence wall" in items
+
+
+def test_main_building_and_external_works(client, admin):
+    r = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Partsville", "cost_items": [
+        {"item": "Ground floor", "area_sqm": 120, "rate": 8000}, {"item": "First floor", "area_sqm": 110, "rate": 8000},
+        {"item": "Tap area", "area_sqm": 4, "rate": 2500}, {"item": "Compound", "area_sqm": 300, "rate": 400}]}).json()
+    assert [c["part"] for c in r["cost_items"]] == ["Main building", "Main building", "External works", "External works"]
+    assert r["cost_per_sqm"] == 8000
+    # the reviewer can move a line: counting the boys' quarters with the main building
+    r = client.patch(f"/api/records/{r['id']}", headers=admin, json={"cost_items": [
+        {"item": "Ground floor", "area_sqm": 100, "rate": 8000},
+        {"item": "Boys quarters", "part": "Main building", "area_sqm": 100, "rate": 6000}]}).json()
+    assert r["cost_items"][1]["part"] == "Main building" and r["cost_per_sqm"] == 7000

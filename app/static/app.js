@@ -720,12 +720,19 @@ function recordEditorHTML(rec, idx) {
 }
 
 /* Rates adopted (cost approach / DRC): one row per part of the building. */
-const COST_FIELDS = [["item", "Item / floor"], ["area_sqm", "Area m²", "num"], ["rate", "Rate per m²", "num"], ["amount", "Amount", "num"]];
-const EXTERNAL_WORKS = /boundary|\bwalls?\b|fenc|\bgates?\b|external|landscap|paving|paved|driveway|car ?park|\bland\b|site works|septic|borehole|soak ?away|drain|walkway|security post|guard ?house|swimming pool|water tank|polytank/i;
+const COST_FIELDS = [["item", "Item / floor"], ["part", "Part", "part"], ["area_sqm", "Area m²", "num"], ["rate", "Rate per m²", "num"], ["amount", "Amount", "num"]];
+const PARTS = ["Main building", "External works"];
+const MAIN_PART = /\b(?:floors?|stor(?:e)?ys?|levels?|main (?:building|house|block)|principal building|basement|mezzanine|pent ?house|attic|superstructure|substructure|(?:the )?building)\b/i;
+const partOf = (item, given) => (given && PARTS.includes(given) ? given
+  : MAIN_PART.test(item || "") && !EXTERNAL_WORKS.test(item || "") ? "Main building" : "External works");
+const EXTERNAL_WORKS = /boundary|\bwalls?\b|fenc|\bgates?\b|external|landscap|paving|paved|driveway|car ?park|\bland\b|site works|septic|borehole|soak ?away|drain|walkway|security post|guard ?house|swimming pool|water tank|polytank|tap|compound|courtyard|yard|kerb|gutter|culvert|lawn|garden|parking|forecourt/i;
 let costRowSeq = 0;
 function costRowHTML(c = {}) {
   const i = costRowSeq++;
-  return `<tr data-row="${i}">${COST_FIELDS.map(([k, , kind]) => `<td><input name="cst_${i}_${k}" value="${esc(kind === "num" ? withCommas(c[k]) : c[k] ?? "")}"${kind === "num" ? ` ${NUM_ATTR} data-kind="num"` : ' placeholder="e.g. Ground floor"'} aria-label="${k}"></td>`).join("")}
+  const part = partOf(c.item, c.part);
+  return `<tr data-row="${i}">${COST_FIELDS.map(([k, , kind]) => kind === "part"
+    ? `<td><select name="cst_${i}_part" aria-label="part">${PARTS.map((p) => `<option ${p === part ? "selected" : ""}>${p}</option>`).join("")}</select></td>`
+    : `<td><input name="cst_${i}_${k}" value="${esc(kind === "num" ? withCommas(c[k]) : c[k] ?? "")}"${kind === "num" ? ` ${NUM_ATTR} data-kind="num"` : ' placeholder="e.g. Ground floor"'} aria-label="${k}"></td>`).join("")}
     <td><button type="button" class="btn small danger cost-del" title="Remove line">✕</button></td></tr>`;
 }
 function costItemsEditorHTML(items) {
@@ -733,11 +740,11 @@ function costItemsEditorHTML(items) {
     <div class="sheet-wrap comp-wrap"><table class="sheet cost-table"><thead><tr>${COST_FIELDS.map(([, l]) => `<th>${esc(l)}</th>`).join("")}<th></th></tr></thead>
     <tbody>${items.map(costRowHTML).join("")}</tbody></table></div>
     <button type="button" class="btn small cost-add">+ Add rate</button>
-    <span class="muted small">One line per part of the building as the report lists it. Construction cost / m² is the floor-area-weighted rate of the building parts (walls, fences and other external works are left out).</span>`;
+    <span class="muted small">One line per item as the report lists it. <b>Main building</b> = the floors; tap area, compound, walls and the rest are <b>External works</b>. Construction cost / m² is the floor-area-weighted rate of the main building.</span>`;
 }
 function readCostRows(el) {
   const rows = {};
-  $$(".cost-table input", el).forEach((inp) => {
+  $$(".cost-table input, .cost-table select", el).forEach((inp) => {
     const m = inp.name.match(/^cst_(\d+)_(\w+)$/);
     if (!m || inp.value.trim() === "") return;
     rows[m[1]] = rows[m[1]] || {};
@@ -747,7 +754,7 @@ function readCostRows(el) {
 }
 function adoptedRate(items) {
   const rows = items.map((r) => ({ ...r, rate: r.rate || (r.amount && r.area_sqm ? r.amount / r.area_sqm : null) })).filter((r) => r.rate);
-  const building = rows.filter((r) => !EXTERNAL_WORKS.test(r.item || ""));
+  const building = rows.filter((r) => partOf(r.item, r.part) === "Main building");
   const use = building.length ? building : rows;
   if (!use.length) return null;
   if (use.every((r) => r.area_sqm)) {
@@ -767,6 +774,9 @@ function initCostRows(el) {
   };
   $$("tr", tbody).forEach((tr) => {
     $(".cost-del", tr).onclick = () => { tr.remove(); update(); };
+    const sel = $("select", tr), name = $(`[name$="_item"]`, tr);
+    if (sel) sel.addEventListener("change", () => { sel.dataset.chosen = "1"; update(); });
+    if (name && sel) name.addEventListener("input", () => { if (!sel.dataset.chosen) sel.value = partOf(name.value); });
     $$("input", tr).forEach((inp) => inp.addEventListener("input", () => {
       const get = (k) => toNum($(`[name$="_${k}"]`, tr).value);
       const amount = $(`[name$="_amount"]`, tr);

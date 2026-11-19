@@ -96,6 +96,7 @@ class Comparable(BaseModel):
 class CostItem(BaseModel):
     """One line of the cost approach: e.g. Ground floor, 120 m², GH¢ 8,000 per m²."""
     item: str | None = None
+    part: str | None = None          # "Main building" (the floors) or "External works"
     area_sqm: float | None = None
     rate: float | None = None
     amount: float | None = None
