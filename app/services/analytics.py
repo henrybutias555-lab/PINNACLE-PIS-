@@ -8,8 +8,8 @@ from datetime import date
 from ..models import Record
 
 METRICS = {
-    "capital_value": ("valuation", "Value opinion"),
-    "value_per_sqm": ("valuation", "Value opinion per m²"),
+    "capital_value": ("valuation", "Valuation opinion"),
+    "value_per_sqm": ("valuation", "Valuation opinion per m²"),
     "annual_rent": ("valuation", "Rental opinion (annual)"),
     "rent_per_sqm": ("valuation", "Rental opinion per m² p.a."),
     "yield_pct": ("valuation", "Yield (%)"),
@@ -44,7 +44,7 @@ def dominant_currency(records: list[Record]) -> str | None:
     return counts.most_common(1)[0][0] if counts else None
 
 
-# A value opinion below this per m² (in cedis) is almost certainly a mis-read figure
+# A valuation opinion below this per m² (in cedis) is almost certainly a mis-read figure
 # (e.g. 2,300 instead of 2,300,000); such records are listed and left out of averages.
 MIN_VALUE_PER_SQM_GHS = 100
 MIN_VALUE_GHS = 10_000
@@ -354,10 +354,10 @@ def template_commentary(stats: dict, trends: dict, scope: str) -> str:
     val_bits = []
     if "value_per_sqm" in m:
         s = m["value_per_sqm"]
-        val_bits.append(f"value opinions averaged {_fmt(s['mean'], cur)} per m² (range {_fmt(s['min'], cur)} to {_fmt(s['max'], cur)}, {s['count']} observations)")
+        val_bits.append(f"valuation opinions averaged {_fmt(s['mean'], cur)} per m² (range {_fmt(s['min'], cur)} to {_fmt(s['max'], cur)}, {s['count']} observations)")
     elif "capital_value" in m:
         s = m["capital_value"]
-        val_bits.append(f"value opinions averaged {_fmt(s['mean'], cur)} (median {_fmt(s['median'], cur)})")
+        val_bits.append(f"valuation opinions averaged {_fmt(s['mean'], cur)} (median {_fmt(s['median'], cur)})")
     if "annual_rent" in m:
         val_bits.append(f"annual rents averaged {_fmt(m['annual_rent']['mean'], cur)}")
     if "yield_pct" in m:
