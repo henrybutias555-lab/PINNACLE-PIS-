@@ -322,3 +322,19 @@ def _claude_extract(path: Path, file_type: str, text: str, default_currency: str
     except json.JSONDecodeError as exc:
         raise AIError("Claude returned malformed JSON") from exc
     return clean_extraction(data)
+
+
+def stream_claude(system: str, prompt: str, *, max_tokens: int = 6000):
+    """Yield Claude's reply as it is written (discussions)."""
+    try:
+        with _client().messages.stream(model=settings.claude_model, max_tokens=max_tokens, system=system,
+                                       messages=[{"role": "user", "content": prompt}],
+                                       output_config={"effort": "low"}) as stream:
+            for text in stream.text_stream:
+                yield text
+    except anthropic.RateLimitError as exc:
+        raise AIError("Claude API rate limit reached; try again shortly") from exc
+    except anthropic.APIStatusError as exc:
+        raise AIError(f"Claude API error ({exc.status_code})") from exc
+    except anthropic.APIConnectionError as exc:
+        raise AIError("Could not reach the Claude API") from exc

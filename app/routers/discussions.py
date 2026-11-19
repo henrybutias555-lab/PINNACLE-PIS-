@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -108,6 +111,55 @@ def send_message(chat_id: int, body: dict, request: Request, user: User = Depend
     db.commit()
     log_activity(db, user, "discussion_message", chat.title[:255], text[:300], request)
     return {"message": mine, "reply": theirs, "title": chat.title}
+
+
+@router.post("/{chat_id}/messages/stream")
+def send_message_stream(chat_id: int, body: dict, request: Request, user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Like /messages, but the reply streams as it is written (server-sent events): 'chunk' events with
+    text, then one 'done' event with the saved messages."""
+    from ..database import SessionLocal
+
+    chat = _mine(db, chat_id, user)
+    text = str(body.get("message") or "").strip()
+    if not text:
+        raise HTTPException(422, "Type a message")
+    if len(text) > 4000:
+        raise HTTPException(422, "Keep the message under 4,000 characters")
+    papers = [{"id": d.id, "title": d.title, "text": d.text or ""} for d in _papers(db, chat.doc_ids or [])]
+    if not any(p["text"].strip() for p in papers):
+        raise HTTPException(422, "These papers have no readable text to discuss")
+    history = list(chat.messages or [])
+    user_id, ip = user.id, (request.client.host if request.client else None)
+    mine = {"role": "user", "content": text, "at": datetime.now(timezone.utc).isoformat()}
+
+    def events():
+        result = None
+        for kind, value in research_chat.stream_reply(papers, history, text):
+            if kind == "chunk":
+                yield f"data: {json.dumps({'type': 'chunk', 'text': value})}\n\n"
+            else:
+                result = value
+        theirs = {"role": "assistant", "content": result["content"], "quotes": result["quotes"],
+                  "method": result["method"], "warning": result["warning"], "at": datetime.now(timezone.utc).isoformat()}
+        with SessionLocal() as s:                    # the request's session may already be closed
+            c = s.get(ResearchChat, chat_id)
+            if c is not None and c.user_id == user_id:
+                c.messages = list(c.messages or []) + [mine, theirs]
+                if not history and c.title.startswith("Discussion: "):
+                    c.title = text[:80] + ("…" if len(text) > 80 else "")
+                s.commit()
+                title = c.title
+                from ..models import ActivityLog
+                s.add(ActivityLog(user_id=user_id, user_email=s.get(User, user_id).email, action="discussion_message",
+                                  target=title[:255], detail=text[:300], ip=ip))
+                s.commit()
+            else:
+                title = None
+        yield f"data: {json.dumps({'type': 'done', 'message': mine, 'reply': theirs, 'title': title})}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @router.delete("/{chat_id}", status_code=204)

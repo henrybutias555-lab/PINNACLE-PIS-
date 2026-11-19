@@ -336,3 +336,59 @@ def _self_check(attempt, log_) -> dict:
     (log_.info if ok else log_.error)("Gemini self-check %s using %s: %s", "PASSED" if ok else "FAILED",
                                       settings.gemini_model, detail)
     return STATUS
+
+
+# ------------------------------------------------------------------ streaming (discussions)
+
+def stream_text(system: str, prompt: str, *, max_tokens: int = 3000):
+    """Yield the reply as Gemini writes it. A busy model is retried once, then up to two other models are
+    tried, as long as nothing has been shown yet; each attempt gives up after PIS_GEMINI_STREAM_TIMEOUT."""
+    import logging
+    import time as _t
+
+    from google import genai
+    from google.genai import errors, types
+
+    log_ = logging.getLogger("pis")
+    timeout_s = int(os.getenv("PIS_GEMINI_STREAM_TIMEOUT", "90"))
+    client = genai.Client(api_key=api_key(), http_options=types.HttpOptions(timeout=timeout_s * 1000))
+    main = settings.gemini_model
+    plan = [(main, 0), (main, 2)] + [(m, 0) for m in _fallback_models() if m != main][:2]
+    last: AIError | None = None
+    for model, wait in plan:
+        if wait:
+            _t.sleep(wait)
+        thinking = _thinking(types, model)
+        cfg = types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens,
+                                          **({"thinking_config": thinking} if thinking else {}))
+        shown = False
+        try:
+            for chunk in client.models.generate_content_stream(model=model, contents=[prompt], config=cfg):
+                piece = getattr(chunk, "text", None) or ""
+                if piece:
+                    shown = True
+                    yield piece
+            if model != main:
+                log_.info("Gemini %s was busy; the discussion was answered by %s", main, model)
+            return
+        except errors.ClientError as exc:
+            code = getattr(exc, "code", None)
+            if shown:
+                raise AIError("Gemini stopped part-way through the reply") from exc
+            if code in (401, 403):
+                raise AIError("Gemini API key is invalid or lacks access") from exc
+            if code == 400 and "thinking" in str(exc).lower():
+                _THINKING_OK[model] = False
+            last = AIError("Gemini rate limit or quota reached" if code == 429 else
+                           f"Gemini model '{model}' not available" if code == 404 else f"Gemini API error ({code})")
+        except errors.ServerError as exc:
+            if shown:
+                raise AIError("Gemini stopped part-way through the reply") from exc
+            last = AIError(f"Gemini service error ({getattr(exc, 'code', '')}); try again shortly")
+        except Exception as exc:
+            if shown:
+                raise AIError("Gemini stopped part-way through the reply") from exc
+            last = AIError("Gemini took too long to start answering" if "timeout" in type(exc).__name__.lower()
+                           or "timed out" in str(exc).lower() else f"Could not reach the Gemini API: {type(exc).__name__}")
+        log_.info("Gemini %s could not answer the discussion (%s)", model, last)
+    raise last or AIError("Gemini could not answer")

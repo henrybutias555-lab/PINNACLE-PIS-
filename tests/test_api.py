@@ -1766,15 +1766,15 @@ def test_discussions_chat_with_papers(client, admin, make_user, monkeypatch):
     monkeypatch.setattr(llm, "provider", lambda: "gemini")
     seen = {}
 
-    def fake(system, contents, **kw):
-        seen["prompt"] = contents[0]
-        return _json.dumps({"reply": "Rents rose 12% while cement rose 20%, so costs outpaced rents.",
-                            "quotes": [{"paper": "Construction Cost Survey", "quote": "Cement prices rose 20% over the year."},
-                                       {"paper": "Housing Report 2026", "quote": "A sentence the paper never said."}]})
-    monkeypatch.setattr(gemini, "_call", fake)
+    def fake(system, prompt, **kw):
+        seen["prompt"] = prompt
+        yield "Rents rose 12% while cement rose 20%, "
+        yield "so costs outpaced rents.\nQUOTES:\n"
+        yield '- [2] "Cement prices rose 20% over the year."\n- [1] "A sentence the paper never said."\n'
+    monkeypatch.setattr(gemini, "stream_text", fake)
     r = client.post(f"/api/discussions/{chat['id']}/messages", headers=junior,
                     json={"message": "Compare that with construction costs"}).json()
-    assert r["reply"]["method"] == "ai" and "outpaced" in r["reply"]["content"]
+    assert r["reply"]["method"] == "ai" and r["reply"]["content"] == "Rents rose 12% while cement rose 20%, so costs outpaced rents."
     assert [q["quote"] for q in r["reply"]["quotes"]] == ["Cement prices rose 20% over the year."]
     assert r["reply"]["quotes"][0]["paper_id"] == b["id"]
     assert "Surveyor: How much did rents rise?" in seen["prompt"] and '<paper number="2"' in seen["prompt"]
@@ -1884,3 +1884,34 @@ def test_cover_page_found_without_spaces_or_with_ligatures():
     assert _is_cover("Seediscussions,stats,andauthorprofilesforthispublicationat:https://www.researchgate.net/publication/1")
     assert _is_cover("See discussions, stats, and author proﬁles for this publication at: x")
     assert clean_lines("21 PUBLICATIONS 160 CITATIONS\nSEE PROFILE\nReal text") == ["Real text"]
+
+
+def test_discussion_reply_streams(client, admin, monkeypatch):
+    import json as _json
+
+    from app.config import Settings
+    from app.services import gemini, llm, research_chat
+
+    doc = client.post("/api/research", headers=admin, files={"file": ("s.txt", (
+        b"Stream Paper\nThe yield on prime offices in Accra is 9%.\n"), "text/plain")}).json()
+    chat = client.post("/api/discussions", headers=admin, json={"paper_ids": [doc["id"]]}).json()
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "provider", lambda: "gemini")
+    monkeypatch.setattr(gemini, "stream_text", lambda s, p, **k: iter(["Prime office ", "yields are 9%.",
+                                                                        '\nQUOTES:\n- [1] "The yield on prime offices in Accra is 9%."']))
+    with client.stream("POST", f"/api/discussions/{chat['id']}/messages/stream", headers=admin,
+                       json={"message": "What are office yields?"}) as r:
+        assert r.status_code == 200 and r.headers["content-type"].startswith("text/event-stream")
+        events = [_json.loads(line[6:]) for line in r.iter_lines() if line.startswith("data: ")]
+    assert [e["text"] for e in events if e["type"] == "chunk"][:2] == ["Prime office ", "yields are 9%."]
+    done = events[-1]
+    assert done["type"] == "done" and done["reply"]["content"] == "Prime office yields are 9%."
+    assert done["reply"]["quotes"][0]["quote"] == "The yield on prime offices in Accra is 9%."
+    saved = client.get(f"/api/discussions/{chat['id']}", headers=admin).json()["messages"]
+    assert [m["role"] for m in saved] == ["user", "assistant"]
+
+    # long papers: only the opening and the matching parts go to the AI
+    long_text = "Title and abstract.\n" + "\n".join(f"Filler paragraph number {i} about nothing much." for i in range(4000)) \
+        + "\nThe capitalisation rate adopted was 8.5 percent.\n" + "\n".join("More filler text here." for _ in range(2000))
+    ctx = research_chat._context(long_text, "what capitalisation rate was adopted?", 20_000)
+    assert len(ctx) <= 21_000 and "Title and abstract." in ctx and "capitalisation rate adopted was 8.5" in ctx
