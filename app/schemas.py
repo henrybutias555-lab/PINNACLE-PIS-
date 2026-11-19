@@ -40,8 +40,12 @@ class UserOut(BaseModel):
     last_seen_at: datetime | None = None
     signed_out_at: datetime | None = None
     online: bool = False
+    last_latitude: float | None = None
+    last_longitude: float | None = None
+    last_location_accuracy: float | None = None
+    last_location_at: datetime | None = None
 
-    @field_validator("created_at", "last_seen_at", "signed_out_at", mode="after")
+    @field_validator("created_at", "last_seen_at", "signed_out_at", "last_location_at", mode="after")
     @classmethod
     def _utc(cls, v):
         from datetime import timezone
@@ -60,6 +64,15 @@ class UserUpdate(BaseModel):
     role: Role | None = None
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=8)
+
+
+class LocationIn(BaseModel):
+    """Device location from the browser (only sent after the user allows it)."""
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    accuracy: float | None = Field(default=None, ge=0)
+    declined: bool = False
+    reason: str | None = Field(default=None, max_length=120)
 
 
 class PasswordChange(BaseModel):
@@ -246,6 +259,9 @@ class ActivityOut(BaseModel):
     target: str | None
     detail: str | None
     ip: str | None
+    latitude: float | None = None
+    longitude: float | None = None
+    accuracy_m: float | None = None
     created_at: datetime
 
 

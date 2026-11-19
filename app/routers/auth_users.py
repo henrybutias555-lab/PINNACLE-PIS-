@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..auth import create_token, get_current_user, hash_password, log_activity, require_role, verify_password
 from ..database import get_db
 from ..models import ActivityLog, User
-from ..schemas import ActivityOut, LoginIn, PasswordChange, TokenOut, UserCreate, UserOut, UserUpdate
+from ..schemas import ActivityOut, LocationIn, LoginIn, PasswordChange, TokenOut, UserCreate, UserOut, UserUpdate
 
 router = APIRouter(prefix="/api", tags=["auth & users"])
 
@@ -31,6 +31,25 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
 def heartbeat(_: User = Depends(get_current_user)):
     """Called every minute by an open PIS page; marks the user as online."""
     return {"ok": True}
+
+
+@router.post("/auth/location")
+def sign_in_location(body: LocationIn, request: Request, user: User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Where the device was at sign-in, as reported by the browser after the user allowed it."""
+    from ..models import ActivityLog, utcnow
+    if body.declined or body.latitude is None or body.longitude is None:
+        log_activity(db, user, "location_not_shared", detail=(body.reason or "declined")[:120], request=request)
+        return {"ok": True, "saved": False}
+    now = utcnow()
+    user.last_latitude, user.last_longitude = body.latitude, body.longitude
+    user.last_location_accuracy, user.last_location_at = body.accuracy, now
+    ip = request.client.host if request.client else None
+    acc = f"±{body.accuracy:,.0f} m" if body.accuracy is not None else None
+    db.add(ActivityLog(user_id=user.id, user_email=user.email, action="sign_in_location",
+                       detail=acc, ip=ip, latitude=body.latitude, longitude=body.longitude, accuracy_m=body.accuracy))
+    db.commit()
+    return {"ok": True, "saved": True}
 
 
 @router.post("/auth/logout")

@@ -1384,3 +1384,21 @@ def test_online_status(client, admin):
     tok = client.post("/api/auth/login", json={"email": "presence@test.local", "password": "Password123"}).json()
     u = next(x for x in client.get("/api/users", headers=admin).json() if x["email"] == "presence@test.local")
     assert u["online"] is True
+
+
+def test_sign_in_location(client, admin):
+    client.post("/api/users", headers=admin, json={"email": "geo@test.local", "password": "Password123", "role": "viewer"})
+    tok = client.post("/api/auth/login", json={"email": "geo@test.local", "password": "Password123"}).json()
+    h = {"Authorization": f"Bearer {tok['access_token']}"}
+    r = client.post("/api/auth/location", headers=h, json={"latitude": 5.603717, "longitude": -0.186964, "accuracy": 12})
+    assert r.json()["saved"] is True
+    u = next(x for x in client.get("/api/users", headers=admin).json() if x["email"] == "geo@test.local")
+    assert u["last_latitude"] == 5.603717 and u["last_longitude"] == -0.186964 and u["last_location_accuracy"] == 12
+    log = client.get("/api/activity?action=sign_in_location", headers=admin).json()
+    assert log[0]["latitude"] == 5.603717 and log[0]["ip"]
+    # declining is recorded, and keeps the last known location
+    assert client.post("/api/auth/location", headers=h, json={"declined": True, "reason": "permission refused"}).json()["saved"] is False
+    assert client.get("/api/activity?action=location_not_shared", headers=admin).json()[0]["detail"] == "permission refused"
+    # nonsense coordinates are rejected; not signed in is rejected
+    assert client.post("/api/auth/location", headers=h, json={"latitude": 500, "longitude": 0}).status_code == 422
+    assert client.post("/api/auth/location", json={"latitude": 5, "longitude": 0}).status_code == 401
