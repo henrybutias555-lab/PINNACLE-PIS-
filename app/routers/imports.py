@@ -167,6 +167,10 @@ def _plan(db: Session, content: bytes) -> dict:
                     same = sorted(t.lower() for t in old) == sorted(t.lower() for t in new)
                 if not same:
                     changes[field] = [old, new]
+            if changes and rec.report_id:
+                plan["errors"].append({"row": excel_row, "error": f"Ref {rec.id} comes from approved report "
+                                       f"#{rec.report_id} and is locked; re-run that report's extraction to change it"})
+                continue
             if changes:
                 try:
                     RecordIn.model_validate({**current, **{k: new for k, (_, new) in changes.items()}})

@@ -206,12 +206,24 @@ def create_record(body: RecordIn, request: Request, user: User = Depends(require
     return rec
 
 
+LOCKED_MESSAGE = ("This record comes from approved report #{rid} and is locked. To change it, open that report "
+                  "in Upload & Review, tap Re-run extraction, check the new reading and tap Update saved records.")
+
+
+def _refuse_if_locked(rec: Record) -> None:
+    """Records saved from an approved report change only through a new extraction of that report."""
+    if rec.report_id:
+        raise HTTPException(423, LOCKED_MESSAGE.format(rid=rec.report_id))
+
+
 @router.patch("/{record_id}", response_model=RecordOut)
 def update_record(record_id: int, body: dict, request: Request, user: User = Depends(require_role("junior")),
                   db: Session = Depends(get_db)):
     rec = db.get(Record, record_id)
     if rec is None:
         raise HTTPException(404, "Record not found")
+    _refuse_if_locked(rec)
+    body = {k: v for k, v in body.items() if k != "locked"}   # read-only, echoed back by forms
     unknown = set(body) - set(RecordIn.model_fields)
     if unknown:
         raise HTTPException(422, f"Unknown fields: {', '.join(sorted(unknown))}")
@@ -230,6 +242,7 @@ def delete_record(record_id: int, request: Request, user: User = Depends(require
     rec = db.get(Record, record_id)
     if rec is None:
         raise HTTPException(404, "Record not found")
+    _refuse_if_locked(rec)
     db.delete(rec)
     db.commit()
     log_activity(db, user, "record_deleted", f"record:{record_id}", request=request)
