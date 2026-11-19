@@ -18,6 +18,7 @@ from ..auth import log_activity, require_role
 from ..database import get_db
 from ..models import Record, User
 from ..schemas import RecordIn, RecordOut
+from ..schemas import is_not_stated
 from ..services.export import COLUMNS, RECORD_COLUMNS
 from .records import apply_changes, record_from_payload
 
@@ -77,8 +78,8 @@ HEADER_FIELDS.update({_norm("Capital value"): "capital_value", _norm("Basis"): "
 
 def _cell(field: str, value):
     """Convert a spreadsheet cell into the field's Python value (None for blank)."""
-    if value is None or (isinstance(value, str) and not value.strip()):
-        return None
+    if value is None or (isinstance(value, str) and (not value.strip() or is_not_stated(value))):
+        return None   # blank, "—" or "Not stated" in the exported workbook
     if field in DATE_FIELDS:
         if isinstance(value, datetime):
             return value.date()
