@@ -44,8 +44,10 @@ class UserOut(BaseModel):
     last_longitude: float | None = None
     last_location_accuracy: float | None = None
     last_location_at: datetime | None = None
+    location_status: str | None = None
+    location_status_at: datetime | None = None
 
-    @field_validator("created_at", "last_seen_at", "signed_out_at", "last_location_at", mode="after")
+    @field_validator("created_at", "last_seen_at", "signed_out_at", "last_location_at", "location_status_at", mode="after")
     @classmethod
     def _utc(cls, v):
         from datetime import timezone

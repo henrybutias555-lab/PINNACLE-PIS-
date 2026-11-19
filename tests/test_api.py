@@ -1399,6 +1399,8 @@ def test_sign_in_location(client, admin):
     # declining is recorded, and keeps the last known location
     assert client.post("/api/auth/location", headers=h, json={"declined": True, "reason": "permission refused"}).json()["saved"] is False
     assert client.get("/api/activity?action=location_not_shared", headers=admin).json()[0]["detail"] == "permission refused"
+    u = next(x for x in client.get("/api/users", headers=admin).json() if x["email"] == "geo@test.local")
+    assert u["location_status"] == "permission refused" and u["location_status_at"] and u["last_latitude"] == 5.603717
     # nonsense coordinates are rejected; not signed in is rejected
     assert client.post("/api/auth/location", headers=h, json={"latitude": 500, "longitude": 0}).status_code == 422
     assert client.post("/api/auth/location", json={"latitude": 5, "longitude": 0}).status_code == 401

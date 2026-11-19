@@ -176,8 +176,24 @@ function shareSignInLocation() {
   if (!navigator.geolocation) { send({ declined: true, reason: "not supported by this browser" }); return; }
   navigator.geolocation.getCurrentPosition(
     (pos) => send({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-    (err) => send({ declined: true, reason: err.code === 1 ? "permission refused" : err.code === 3 ? "timed out" : "position unavailable" }),
+    (err) => {
+      send({ declined: true, reason: err.code === 1 ? "permission refused" : err.code === 3 ? "timed out" : "position unavailable" });
+      if (err.code === 1) locationBlockedNotice();
+    },
     { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+}
+/* The browser remembers "Never"/"Block" for this site on this device and will not ask again;
+   only the user can undo it, so explain how. */
+function locationBlockedNotice() {
+  if ($("#loc-notice")) return;
+  const box = document.createElement("div");
+  box.id = "loc-notice";
+  box.className = "update-bar loc-notice";
+  box.innerHTML = `<div><b>Location is blocked for PIS on this device.</b> Your sign-in was recorded without a location.
+    To allow it: tap the icon left of the web address (🔒 or ⚙) → <b>Permissions</b> / <b>Site settings</b> → <b>Location</b> → <b>Allow</b>,
+    then sign in again.</div><button class="btn small" type="button">OK</button>`;
+  box.querySelector("button").onclick = () => box.remove();
+  document.body.appendChild(box);
 }
 const mapUrl = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
 function mapLink(lat, lng, acc) {
@@ -1402,6 +1418,17 @@ $("#comp-xlsx").addEventListener("click", () => compExport("xlsx"));
 $("#comp-docx").addEventListener("click", () => compExport("docx"));
 
 /* ---------------- Admin ---------------- */
+function locationCell(u) {
+  const last = u.last_latitude != null
+    ? `${mapLink(u.last_latitude, u.last_longitude, u.last_location_accuracy)}<br><span class="muted small">${ago(u.last_location_at)}</span>` : "";
+  const st = u.location_status;
+  if (st && st !== "shared") {
+    const why = st === "permission refused" ? "Location blocked on this device" : `Location not shared (${esc(st)})`;
+    return `<span class="loc-warn">⚠ ${why}</span> <span class="muted small">${ago(u.location_status_at)}</span>${last ? `<br><span class="muted small">Earlier:</span> ${last}` : ""}`;
+  }
+  return last || '<span class="muted small">not shared yet</span>';
+}
+
 /* Online now / active x min ago / last seen ... */
 function ago(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -1426,7 +1453,7 @@ async function loadAdmin() {
   $("#users-table").innerHTML = table(["Name", "Email", "Role", "Status", "Location at last sign-in", "Account", ""], users.map((u) => [esc(u.full_name), esc(u.email),
     `<select class="role-sel" data-id="${u.id}">${Object.entries(ROLE_NAMES).map(([k, l]) => `<option value="${k}" ${k === u.role ? "selected" : ""}>${l}</option>`).join("")}</select>`,
     presence(u),
-    u.last_latitude != null ? `${mapLink(u.last_latitude, u.last_longitude, u.last_location_accuracy)}<br><span class="muted small">${ago(u.last_location_at)}</span>` : '<span class="muted small">not shared</span>',
+    locationCell(u),
     u.is_active ? statusPill("confirmed").replace("confirmed", "active") : '<span class="pill bad">disabled</span>',
     `<button class="btn small toggle-active" data-id="${u.id}" data-active="${u.is_active}">${u.is_active ? "Disable" : "Enable"}</button>`]));
   $$(".role-sel").forEach((s) => s.addEventListener("change", async () => {
