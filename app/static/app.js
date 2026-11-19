@@ -1683,6 +1683,7 @@ async function loadResearch() {
     $("#research-upload [name=category]").innerHTML = opts;
   }
   $("#research-upload-card").hidden = !can("junior");
+  loadDiscussions().catch(() => {});
   const f = formData($("#research-search"));
   const box = $("#research-list");
   box.innerHTML = '<p class="muted">Loading…</p>';
@@ -1698,7 +1699,7 @@ async function loadResearch() {
       ${d.summary ? `<p>${highlight(d.summary, f.q)}</p>` : ""}
       ${d.snippet ? `<p class="snippet small">…${highlight(d.snippet, f.q)}</p>` : ""}
       ${(d.tags || []).length ? `<p>${d.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join(" ")}</p>` : ""}
-      <div class="row gap">${d.has_text ? '<button class="btn small primary rs-ask">💬 Ask</button><button class="btn small rs-read">Read</button>' : ""}
+      <div class="row gap">${d.has_text ? '<button class="btn small primary rs-discuss">💬 Discuss</button><button class="btn small rs-ask">Quick question</button><button class="btn small rs-read">Read</button>' : ""}
         <button class="btn small rs-dl">Download</button>
         ${can("junior") ? '<button class="btn small rs-edit">Edit details</button>' : ""}
         ${can("senior") ? '<button class="btn small danger rs-del">Delete</button>' : ""}</div>
@@ -1707,6 +1708,7 @@ async function loadResearch() {
     const id = card.dataset.id, d = res.items.find((x) => String(x.id) === id);
     $(".rs-read", card)?.addEventListener("click", () => readResearch(id, f.q));
     $(".rs-ask", card)?.addEventListener("click", () => readResearch(id, f.q, true));
+    $(".rs-discuss", card)?.addEventListener("click", () => discussPaper(Number(id)).catch((e) => toast(e.message, true)));
     $(".rs-dl", card).onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
     $(".rs-edit", card)?.addEventListener("click", () => editResearch(d));
     $(".rs-del", card)?.addEventListener("click", async () => {
@@ -1715,12 +1717,116 @@ async function loadResearch() {
     });
   });
 }
+/* ---- Discussions: texting with the AI about papers ---- */
+let researchIndex = [];
+function chatText(s) {   // safe, light formatting for chat messages: **bold**, bullets, line breaks
+  let h = esc(s || "").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  const lines = h.split(/\n/);
+  return lines.map((line, i) => (/^\s*[-•*]\s+/.test(line)
+    ? `<span class="chat-li">• ${line.replace(/^\s*[-•*]\s+/, "")}</span>`
+    : line + (i < lines.length - 1 ? "<br>" : ""))).join("");
+}
+const ago2 = (iso) => { try { return ago(iso); } catch (_) { return new Date(iso).toLocaleString(); } };
+async function loadDiscussions() {
+  const list = await api("/api/discussions");
+  const box = $("#discussion-list");
+  if (!box) return;
+  box.innerHTML = list.length ? list.map((c) => `<button class="discussion-item" data-id="${c.id}">
+      <b>${esc(c.title)}</b>
+      <span class="muted small">${c.papers.map((p) => esc(p.title)).join(" · ")}</span>
+      <span class="muted small">${c.message_count ? `${c.message_count} messages · ` : ""}${ago2(c.updated_at)}${c.last_message ? ` · “${esc(c.last_message.slice(0, 70))}${c.last_message.length > 70 ? "…" : ""}”` : ""}</span>
+    </button>`).join("") : '<p class="muted small">No discussions yet. Tap <b>💬 Discuss</b> on a paper, or <b>+ New discussion</b> to pick several.</p>';
+  $$(".discussion-item", box).forEach((b) => (b.onclick = () => openDiscussion(Number(b.dataset.id))));
+}
+async function discussPaper(paperId) {
+  const mine = await api("/api/discussions");
+  const existing = mine.find((c) => c.papers.length === 1 && c.papers[0].id === paperId);
+  if (existing) return openDiscussion(existing.id);
+  const chat = await api("/api/discussions", { method: "POST", body: { paper_ids: [paperId] } });
+  openDiscussion(chat.id);
+}
+async function newDiscussion() {
+  const res = await api("/api/research?limit=500");
+  researchIndex = res.items;
+  if (!res.items.length) { toast("Add a document to the Research Bank first", true); return; }
+  openModal(`<div class="row between"><h3>New discussion</h3><button class="btn" onclick="closeModal()">Close</button></div>
+    <p class="muted small">Pick up to 5 papers to discuss together.</p>
+    <form id="nd-form"><div class="pick-list">${res.items.filter((d) => d.has_text).map((d) => `<label class="pick"><input type="checkbox" name="p" value="${d.id}"> <span><b>${esc(d.title)}</b> <span class="muted small">${esc(d.category)}</span></span></label>`).join("")}</div>
+    <div class="row gap"><button class="btn primary">Start discussion</button></div></form>`);
+  $("#nd-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const ids = $$("#nd-form input:checked").map((x) => Number(x.value));
+    if (!ids.length) { toast("Pick at least one paper", true); return; }
+    if (ids.length > 5) { toast("Pick up to 5 papers", true); return; }
+    try { const chat = await api("/api/discussions", { method: "POST", body: { paper_ids: ids } }); openDiscussion(chat.id); }
+    catch (err) { toast(err.message, true); }
+  };
+}
+async function openDiscussion(id) {
+  let chat = await api(`/api/discussions/${id}`);
+  if (!researchIndex.length) researchIndex = (await api("/api/research?limit=500")).items;
+  openModal(`<div class="chat">
+    <div class="chat-head"><div><h3 class="chat-title">${esc(chat.title)}</h3>
+      <div class="chat-papers"></div></div>
+      <div class="row gap"><button class="btn small" id="chat-del" title="Delete this discussion">🗑</button><button class="btn" onclick="closeModal()">Close</button></div></div>
+    <div class="chat-log" aria-live="polite"></div>
+    <form class="chat-send"><textarea name="m" rows="1" placeholder="Message…" aria-label="Message about the paper${chat.papers.length === 1 ? "" : "s"}" maxlength="4000"></textarea><button class="btn primary">Send</button></form>
+  </div>`);
+  const log = $(".chat-log"), input = $(".chat-send textarea");
+  const papersBar = () => {
+    const others = researchIndex.filter((d) => d.has_text && !chat.papers.some((p) => p.id === d.id));
+    $(".chat-papers").innerHTML = chat.papers.map((p) => `<span class="tag paper-chip">📄 ${esc(p.title)}${chat.papers.length > 1 ? ` <button type="button" class="chip-x" data-id="${p.id}" title="Remove from discussion">✕</button>` : ""}</span>`).join(" ")
+      + (chat.papers.length < 5 && others.length ? ` <select class="add-paper"><option value="">+ Add a paper…</option>${others.map((d) => `<option value="${d.id}">${esc(d.title)}</option>`).join("")}</select>` : "");
+    const setPapers = async (ids) => { try { chat = { ...chat, ...(await api(`/api/discussions/${id}`, { method: "PATCH", body: { paper_ids: ids } })) }; papersBar(); } catch (e) { toast(e.message, true); } };
+    $$(".chip-x").forEach((b) => (b.onclick = () => setPapers(chat.papers.map((p) => p.id).filter((x) => x !== Number(b.dataset.id)))));
+    const add = $(".add-paper"); if (add) add.onchange = () => add.value && setPapers([...chat.papers.map((p) => p.id), Number(add.value)]);
+  };
+  const bubble = (m) => m.role === "user"
+    ? `<div class="msg me"><div class="bubble">${chatText(m.content)}</div><span class="msg-at">${m.at ? new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>`
+    : `<div class="msg ai"><div class="bubble">${m.typing ? '<span class="typing"><i></i><i></i><i></i></span>' : chatText(m.content)}
+        ${(m.quotes || []).map((q) => `<blockquote class="chat-quote" data-paper="${q.paper_id}" data-q="${esc(q.quote.slice(0, 80))}">“${esc(q.quote)}”<span>— ${esc(q.paper)}</span></blockquote>`).join("")}
+        ${m.warning ? `<p class="muted small">⚠ ${esc(m.warning)}</p>` : ""}</div>
+        <span class="msg-at">${m.typing ? "PIS Research is typing…" : `PIS Research${m.method === "search" ? " (search only)" : ""}${m.at ? " · " + new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`}</span></div>`;
+  const render = (extra = []) => {
+    const msgs = [...(chat.messages || []), ...extra];
+    log.innerHTML = msgs.length ? msgs.map(bubble).join("")
+      : `<div class="chat-empty">👋 Ask anything about ${chat.papers.length === 1 ? "this paper" : "these papers"}, e.g. <i>“Summarise the key points”</i>, <i>“What does it say about construction cost?”</i>${chat.papers.length > 1 ? ", <i>“How do these papers differ?”</i>" : ""}</div>`;
+    $$(".chat-quote", log).forEach((bq) => (bq.onclick = () => readResearch(bq.dataset.paper, bq.dataset.q.split(/\s+/).slice(0, 4).join(" "), false, () => openDiscussion(id))));
+    log.scrollTop = log.scrollHeight;
+  };
+  papersBar(); render();
+  const send = async () => {
+    const text = input.value.trim();
+    if (!text || input.disabled) return;
+    input.value = ""; input.style.height = "";
+    const mine = { role: "user", content: text, at: new Date().toISOString() };
+    render([mine, { role: "assistant", typing: true }]);
+    input.disabled = true;
+    try {
+      const res = await api(`/api/discussions/${id}/messages`, { method: "POST", body: { message: text } });
+      chat.messages = [...(chat.messages || []), res.message, res.reply];
+      if (res.title) { chat.title = res.title; $(".chat-title").textContent = res.title; }
+      render();
+    } catch (e) { render(); input.value = text; toast(e.message, true); }
+    finally { input.disabled = false; input.focus(); loadDiscussions().catch(() => {}); }
+  };
+  $(".chat-send").onsubmit = (e) => { e.preventDefault(); send(); };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+  input.addEventListener("input", () => { input.style.height = ""; input.style.height = Math.min(input.scrollHeight, 140) + "px"; });
+  $("#chat-del").onclick = async () => {
+    if (!confirm("Delete this discussion?")) return;
+    try { await api(`/api/discussions/${id}`, { method: "DELETE" }); closeModal(); loadDiscussions(); } catch (e) { toast(e.message, true); }
+  };
+  input.focus();
+}
+$("#new-discussion").addEventListener("click", () => newDiscussion().catch((e) => toast(e.message, true)));
+
 const researchChats = {};   // questions asked per document, kept while the page is open
-async function readResearch(id, q, focusAsk = false) {
+async function readResearch(id, q, focusAsk = false, back = null) {
   const d = await api(`/api/research/${id}?${qs({ q })}`);
   const body = (d.text || "").split(/\n+/).map((line) => line.trim()).filter(Boolean)
     .map((line) => (/^##\s/.test(line) ? `<h4>${highlight(line.replace(/^##\s*/, ""), q)}</h4>` : `<p>${highlight(line, q)}</p>`)).join("");
-  openModal(`<div class="row between"><h3>${esc(d.title)}</h3><div class="row gap"><button class="btn small" id="rs-dl2">Download original</button><button class="btn" onclick="closeModal()">Close</button></div></div>
+  openModal(`<div class="row between"><h3>${esc(d.title)}</h3><div class="row gap">${back ? '<button class="btn small primary" id="rs-back">← Back to discussion</button>' : ""}<button class="btn small" id="rs-dl2">Download original</button><button class="btn" onclick="closeModal()">Close</button></div></div>
     <p class="muted small">${esc(d.category)}${d.author ? ` · ${esc(d.author)}` : ""}${d.year ? ` · ${esc(d.year)}` : ""} · ${esc(d.filename)}</p>
     <section class="ask-box">
       <form class="row gap rs-ask-form"><input name="question" maxlength="1000" placeholder="💬 Ask this document, e.g. What are the success metrics?" autocomplete="off"><button class="btn small primary">Ask</button></form>
@@ -1729,7 +1835,8 @@ async function readResearch(id, q, focusAsk = false) {
     <form class="row gap rs-find"><input name="q" value="${esc(q || "")}" placeholder="Find in this document"><button class="btn small">Find</button></form>
     <div class="reader">${body || '<p class="muted">No readable text in this file. Download it to view.</p>'}</div>`);
   $("#rs-dl2").onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
-  $(".rs-find").onsubmit = (e) => { e.preventDefault(); readResearch(id, new FormData(e.target).get("q")); };
+  if (back) $("#rs-back").onclick = back;
+  $(".rs-find").onsubmit = (e) => { e.preventDefault(); readResearch(id, new FormData(e.target).get("q"), false, back); };
   const log = $(".ask-log");
   const chat = (researchChats[id] = researchChats[id] || []);
   const showInDoc = (quote) => {
