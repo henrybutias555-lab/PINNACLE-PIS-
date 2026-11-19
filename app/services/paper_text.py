@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import io
 import re
+import unicodedata
+
+
+def _nfkc(text: str) -> str:
+    """'proﬁles' -> 'profiles' (PDF ligatures), full-width and other look-alike characters made plain."""
+    return unicodedata.normalize("NFKC", text or "")
 
 # ResearchGate / Academia / SSRN download pages and footers
 _COVER_LINE = re.compile(
-    r"see discussions, stats,? and author profiles|researchgate\.net/(?:publication|profile)|"
-    r"all content following this page was uploaded by|the user has requested enhancement of the downloaded file|"
+    r"see\s*discussions,?\s*stats,?\s*and\s*author\s*profiles|researchgate\.net/(?:publication|profile)|"
+    r"all\s*content\s*following\s*this\s*page\s*was\s*uploaded|the\s*user\s*has\s*requested\s*enhancement|"
+    r"^\s*see\s*profile\s*$|^\s*\d+\s*publications?\s+[\d,]+\s*citations?\s*$|\bauthors?,?\s*including:?\s*$|"
     r"^\s*(?:citations?|reads)\s*\d|^\s*\d[\d,]*\s*(?:citations?|reads)\s*$|some of the authors of this publication|"
     r"view project|^\s*project\s*$|downloaded from|academia\.edu|electronic copy available at|"
     r"https?://ssrn\.com|this article was downloaded by", re.I)
@@ -17,7 +24,7 @@ _PIPES = re.compile(r"(?:\s*\|){2,}\s*|\s+\|\s*$")
 
 def clean_lines(text: str) -> list[str]:
     lines = []
-    for ln in (text or "").splitlines():
+    for ln in _nfkc(text).splitlines():
         ln = _PIPES.sub(" ", ln).replace("­", "").strip(" |\t")
         ln = re.sub(r"\s{2,}", " ", ln)
         if ln and not _COVER_LINE.search(ln):
@@ -58,15 +65,25 @@ def _pages_text(data: bytes) -> tuple[list[str], dict]:
     pages = []
     for page in reader.pages:
         try:
-            pages.append(page.extract_text() or "")
+            pages.append(_nfkc(page.extract_text() or ""))
         except Exception:
             pages.append("")
     return pages, meta
 
 
+_COVER_MARKS = ("seediscussions,stats,andauthorprofiles", "seediscussions,statsandauthorprofiles",
+                 "allcontentfollowingthispagewasuploaded", "researchgate.net/publication",
+                 "theuserhasrequestedenhancementofthedownloadedfile")
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"\s+", "", _nfkc(text)).lower()
+
+
 def _is_cover(page: str) -> bool:
-    return bool(re.search(r"see discussions, stats,? and author profiles|all content following this page was uploaded",
-                          page, re.I)) and len(page) < 3000
+    """A download cover page (ResearchGate & co.), however the PDF spaced its words."""
+    flat = _squash(page)
+    return any(m in flat for m in _COVER_MARKS) and len(page) < 8000
 
 
 def read_paper_pdf(data: bytes) -> tuple[str, dict]:
@@ -75,18 +92,19 @@ def read_paper_pdf(data: bytes) -> tuple[str, dict]:
     details: dict = {}
     if pages and _is_cover(pages[0]):
         cover = pages[0]
-        m = re.search(r"(?i)(?:article|chapter|conference paper|thesis|book|preprint|technical report|working paper)"
-                      r"\s+in\s+(.+?)\s*[·•|]\s*(?:[A-Z][a-z]+\s+)?((?:19|20)\d{2})", cover)
+        m = re.search(r"(?i)(?:article|chapter|conference\s*paper|thesis|book|preprint|technical\s*report|working\s*paper)"
+                      r"\s*in\s*(.+?)\s*[·•|]\s*(?:[A-Z][a-z]+\s*)?((?:19|20)\d{2})", cover)
         if m:
             details["source"] = " ".join(m.group(1).split())[:200]
             details["year"] = m.group(2)
         # the title is the line after the ResearchGate link
         lines = [ln.strip() for ln in cover.splitlines() if ln.strip()]
         for i, ln in enumerate(lines):
-            if "researchgate.net/publication" in ln.lower():
-                after = ln.split("/publication/", 1)[1]
-                rest = re.sub(r"^\d+\S*\s*", "", after).strip()
+            if "researchgate.net/publication" in ln.lower().replace(" ", ""):
+                after = re.split(r"(?i)/\s*publication\s*/", ln, maxsplit=1)[-1]
+                rest = re.sub(r"^\s*\d+\S*\s*", "", after).strip()
                 candidate = rest or (lines[i + 1] if i + 1 < len(lines) else "")
+                candidate = re.sub(r"(?i)\s*(?:article|chapter|conference paper|thesis|preprint)\s*in\b.*$", "", candidate).strip()
                 if 5 <= len(candidate) <= 250 and not _COVER_LINE.search(candidate):
                     details["title"] = candidate
                 break

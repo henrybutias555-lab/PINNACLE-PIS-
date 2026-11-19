@@ -69,10 +69,10 @@ def _client():
 _THINKING_OK: dict[str, bool] = {}
 
 
-def _thinking(types):
+def _thinking(types, model: str | None = None):
     """Short thinking: reading figures out of a report doesn't need long deliberation, and the
     newer models think for minutes by default."""
-    model = settings.gemini_model
+    model = model or settings.gemini_model
     if _THINKING_OK.get(model) is False:
         return None
     if re.match(r"gemini-([3-9]|\d{2})", model):
@@ -85,11 +85,69 @@ def _thinking(types):
 EXTRACTION_SEED = 20251119   # fixed: repeated readings of one report stay as alike as the model allows
 
 
+import contextvars
+
+# while the start-up check tests one model, no retries or other models (it must see that model's answer)
+_SINGLE = contextvars.ContextVar("gemini_single_model", default=False)
+_TRANSIENT = ("service error", "rate limit", "took too long", "Could not reach", "not found")
+_MODEL_CACHE: dict = {"at": 0.0, "models": []}
+
+
+def _fallback_models() -> list[str]:
+    """Other models to try when the main one is busy: stable Flash-Lite first, then Flash (newest first)."""
+    import time as _t
+
+    if _t.time() - _MODEL_CACHE["at"] > 3600 or not _MODEL_CACHE["models"]:
+        try:
+            names = _available_models()
+        except Exception:
+            names = []
+        good = [n for n in names if "flash" in n and not re.search(r"preview|exp|tts|image|live|audio|embedding", n)]
+        version = lambda n: float((re.search(r"gemini-(\d+(?:\.\d+)?)", n) or [0, 0])[1])  # noqa: E731
+        good.sort(key=lambda n: ("lite" in n, version(n)), reverse=True)
+        _MODEL_CACHE.update(at=_t.time(), models=good)
+    return list(_MODEL_CACHE["models"])
+
+
 def _call(system: str, contents: list, *, max_tokens: int, json_schema: dict | None = None) -> str:
+    """Ask Gemini. Busy / rate-limited answers are retried, then other Gemini models are tried, so a
+    temporary 503 from Google doesn't stop extraction, Ask or discussions."""
+    import logging
+    import time as _t
+
+    log_ = logging.getLogger("pis")
+    main = settings.gemini_model
+    if _SINGLE.get():
+        return _call_once(main, system, contents, max_tokens=max_tokens, json_schema=json_schema)
+    last: AIError | None = None
+    for attempt, wait in enumerate((0, 2, 5)):
+        if wait:
+            _t.sleep(wait)
+        try:
+            return _call_once(main, system, contents, max_tokens=max_tokens, json_schema=json_schema)
+        except AIError as exc:
+            last = exc
+            if not any(t in str(exc) for t in _TRANSIENT):
+                raise
+            if "took too long" in str(exc) or "not found" in str(exc):
+                break                      # don't wait again for the same model
+    for model in [m for m in _fallback_models() if m != main][:3]:
+        try:
+            text = _call_once(model, system, contents, max_tokens=max_tokens, json_schema=json_schema)
+            log_.info("Gemini %s was busy (%s); answered with %s", main, last, model)
+            return text
+        except AIError as exc:
+            last = exc
+            if not any(t in str(exc) for t in _TRANSIENT):
+                raise
+    raise last or AIError("Gemini could not answer")
+
+
+def _call_once(model: str, system: str, contents: list, *, max_tokens: int, json_schema: dict | None = None) -> str:
     from google.genai import errors, types
 
     def config(with_thinking: bool):
-        thinking = _thinking(types) if with_thinking else None
+        thinking = _thinking(types, model) if with_thinking else None
         return types.GenerateContentConfig(
             system_instruction=system,
             max_output_tokens=max_tokens,
@@ -97,19 +155,17 @@ def _call(system: str, contents: list, *, max_tokens: int, json_schema: dict | N
             **({"response_mime_type": "application/json", "response_json_schema": json_schema} if json_schema else {}),
             # Extraction: the same report should read the same way every time.
             **({"seed": EXTRACTION_SEED} if json_schema else {}),
-            **({"temperature": 0.0} if json_schema and settings.gemini_model.startswith("gemini-2") else {}),
+            **({"temperature": 0.0} if json_schema and model.startswith("gemini-2") else {}),
         )
 
     try:
         try:
-            response = _client().models.generate_content(model=settings.gemini_model, contents=contents,
-                                                         config=config(True))
+            response = _client().models.generate_content(model=model, contents=contents, config=config(True))
         except errors.ClientError as exc:
             # a model that doesn't accept the thinking setting: remember, and ask again without it
             if getattr(exc, "code", None) == 400 and "thinking" in str(exc).lower():
-                _THINKING_OK[settings.gemini_model] = False
-                response = _client().models.generate_content(model=settings.gemini_model, contents=contents,
-                                                             config=config(False))
+                _THINKING_OK[model] = False
+                response = _client().models.generate_content(model=model, contents=contents, config=config(False))
             else:
                 raise
     except errors.ClientError as exc:
@@ -117,7 +173,7 @@ def _call(system: str, contents: list, *, max_tokens: int, json_schema: dict | N
         if code in (401, 403):
             raise AIError("Gemini API key is invalid or lacks access") from exc
         if code == 404:
-            raise AIError(f"Gemini model '{settings.gemini_model}' not found; set PIS_GEMINI_MODEL") from exc
+            raise AIError(f"Gemini model '{model}' not found; set PIS_GEMINI_MODEL") from exc
         if code == 429:
             raise AIError("Gemini rate limit or quota reached; try again shortly") from exc
         raise AIError(f"Gemini API error ({code}): {getattr(exc, 'message', exc)}") from exc
@@ -233,6 +289,16 @@ def self_check() -> dict:
 
     import time as _time
 
+    token = _SINGLE.set(True)
+    try:
+        return _self_check(attempt, log_)
+    finally:
+        _SINGLE.reset(token)
+
+
+def _self_check(attempt, log_) -> dict:
+    import time as _time
+
     started = _time.monotonic()
     ok, detail = attempt()
     slow = _time.monotonic() - started > FAST_ENOUGH_S
@@ -246,7 +312,9 @@ def self_check() -> dict:
         except Exception as exc:  # listing models failed too
             models = []
             detail += f"; could not list models ({type(exc).__name__})"
-        lite_first = sorted([m for m in models if m != original], key=lambda m: ("lite" not in m))
+        text_models = [m for m in models if m != original and
+                       not re.search(r"preview|exp|tts|image|live|audio|embedding|robotics|computer", m)]
+        lite_first = sorted(text_models, key=lambda m: ("lite" not in m))
         best = (original, detail) if ok else None
         for candidate in lite_first[:5]:
             settings.gemini_model = candidate

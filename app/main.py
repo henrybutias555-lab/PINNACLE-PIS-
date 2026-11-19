@@ -138,9 +138,10 @@ def _fix_research_docs() -> int:
     changed = 0
     with SessionLocal() as db:
         for doc in db.scalars(select(ResearchDoc).where(ResearchDoc.file_type == "pdf")):
-            text = doc.text or ""
-            if "|||" in text or "see discussions, stats" in text.lower() or "researchgate" in (doc.title or "").lower() \
-                    or "discussions, stats" in (doc.title or "").lower():
+            from .services.paper_text import _squash
+            flat = _squash((doc.text or "")[:6000]) + _squash(doc.title or "")
+            if "|||" in (doc.text or "") or "seediscussions" in flat or "researchgate" in flat \
+                    or "allcontentfollowingthispage" in flat:
                 try:
                     reread(doc)
                     changed += 1
