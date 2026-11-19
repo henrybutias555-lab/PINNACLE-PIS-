@@ -121,6 +121,8 @@ class Record(Base):
     rent_per_sqm: Mapped[float | None] = mapped_column(Float, nullable=True)
     assumptions: Mapped[str | None] = mapped_column(Text, nullable=True)
     comparables: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # rates adopted per part of the building: [{item, area_sqm, rate, amount}]
+    cost_items: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     # Construction cost
     total_cost: Mapped[float | None] = mapped_column(Float, nullable=True)

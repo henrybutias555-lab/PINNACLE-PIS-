@@ -93,6 +93,14 @@ class Comparable(BaseModel):
     notes: str | None = None
 
 
+class CostItem(BaseModel):
+    """One line of the cost approach: e.g. Ground floor, 120 m², GH¢ 8,000 per m²."""
+    item: str | None = None
+    area_sqm: float | None = None
+    rate: float | None = None
+    amount: float | None = None
+
+
 class RecordBase(BaseModel):
     category: Category
     title: str | None = None
@@ -121,6 +129,7 @@ class RecordBase(BaseModel):
     rent_per_sqm: float | None = None
     assumptions: str | None = None
     comparables: list[Comparable] | None = None
+    cost_items: list[CostItem] | None = None
 
     total_cost: float | None = None
     cost_per_sqm: float | None = None

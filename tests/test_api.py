@@ -1588,3 +1588,46 @@ def test_very_good_and_excellent_are_one_grade(client, admin):
         db.add(old); db.commit(); oid = old.id
     assert _fix_rating_values() >= 1
     assert client.get(f"/api/records/{oid}", headers=admin).json()["overall_marketability"] == top
+
+
+DRC_TABLE = """VALUATION REPORT
+Location: Ratesville, Accra
+Market value: GH¢ 2,300,000
+COST APPROACH
+Item | Area (m²) | Rate (GH¢/m²) | Amount (GH¢)
+Ground floor | 120.00 | 8,000 | 960,000
+First floor | 110.00 | 8,000 | 880,000
+Boundary wall | 85 | 10,000 | 850,000
+Total replacement cost | | | 2,690,000
+"""
+
+
+def test_rates_adopted_per_floor(client, admin, monkeypatch):
+    import io as _io
+
+    import openpyxl
+    from app.config import Settings
+    from app.services import llm
+
+    # the AI recorded one rate (the wall's 10,000); the report's floors were 8,000 each
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {"report_type": "valuation", "title": "R", "records": [{
+        "category": "valuation", "location": "Ratesville", "currency": "GHS", "cost_per_sqm": 10000}]})
+    rep = client.post("/api/reports/upload?sync=true", headers=admin,
+                      files=[("files", ("drc.txt", DRC_TABLE.encode(), "text/plain"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert [(c["item"], c["rate"]) for c in rec["cost_items"]] == [
+        ("Ground floor", 8000), ("First floor", 8000), ("Boundary wall", 10000)]
+    assert rec["cost_per_sqm"] == 8000 and "rates adopted" in rec["autofilled"]["cost_per_sqm"]
+    assert client.post(f"/api/reports/{rep['id']}/confirm", headers=admin, json={"records": [rec]}).status_code == 200
+
+    # different rates per floor: area-weighted, external works left out
+    r = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Ratesville2", "cost_items": [
+        {"item": "Ground floor", "area_sqm": 100, "rate": 8000}, {"item": "First floor", "area_sqm": 100, "rate": 9000},
+        {"item": "Fence wall", "area_sqm": 60, "rate": 3000}]}).json()
+    assert r["cost_per_sqm"] == 8500 and r["cost_items"][0]["amount"] == 800000
+    # Excel: a sheet listing every rate adopted
+    xlsx = client.get("/api/exports/evidence?format=xlsx&q=Ratesville", headers=admin).content
+    ws = openpyxl.load_workbook(_io.BytesIO(xlsx))["Rates adopted"]
+    items = [ws.cell(r, 5).value for r in range(5, ws.max_row + 1)]
+    assert "Ground floor" in items and "Boundary wall" in items and "Fence wall" in items

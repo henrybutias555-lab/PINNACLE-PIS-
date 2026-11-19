@@ -32,6 +32,10 @@ _COMPARABLE = {
         "size_sqm": _NUM, "price_per_sqm": _NUM, "notes": _STR,
     },
 }
+_COST_ITEM = {
+    "type": "object",
+    "properties": {"item": _STR, "area_sqm": _NUM, "rate": _NUM, "amount": _NUM},
+}
 _BREAKDOWN = {
     "type": "object",
     "properties": {
@@ -63,6 +67,10 @@ _RECORD_PROPS = {
     "capital_value": _NUM, "annual_rent": _NUM, "yield_pct": _NUM,
     "value_per_sqm": _NUM, "rent_per_sqm": _NUM, "assumptions": _STR,
     "comparables": {"type": ["array", "null"], "items": _COMPARABLE},
+    "cost_items": {"type": ["array", "null"], "items": _COST_ITEM,
+                   "description": "Every rate adopted in the cost approach / DRC computation, one row per part "
+                                  "of the building as the report lists it (e.g. Ground floor 120 m² at 8,000 per m²; "
+                                  "First floor 110 m² at 8,000; Boundary wall ...). Copy each rate exactly."},
     "total_cost": _NUM,
     "cost_per_sqm": {"type": ["number", "null"],
                      "description": "Construction cost per m². Reports call it the 'rate' or 'rate adopted' (e.g. in "
@@ -232,6 +240,9 @@ def clean_extraction(data: dict) -> dict:
     for rec in data.get("records", []) or []:
         if isinstance(rec.get("cost_breakdown"), dict):
             rec["cost_breakdown"] = {k: v for k, v in rec["cost_breakdown"].items() if v not in (None, 0, "")} or None
+        if isinstance(rec.get("cost_items"), list):
+            rec["cost_items"] = [{k: v for k, v in c.items() if v not in (None, "")}
+                                 for c in rec["cost_items"] if isinstance(c, dict) and any(c.values())] or None
         if isinstance(rec.get("comparables"), list):
             rec["comparables"] = [{k: v for k, v in c.items() if v not in (None, "")}
                                   for c in rec["comparables"] if isinstance(c, dict) and any(c.values())] or None

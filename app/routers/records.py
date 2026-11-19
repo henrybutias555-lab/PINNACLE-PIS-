@@ -104,6 +104,12 @@ def _derive(rec: Record) -> None:
                 c["price_per_sqm"] = round(float(c["price"]) / float(c["size_sqm"]), 2)
             comps.append(c)
         rec.comparables = comps
+    if rec.cost_items:
+        from ..services.rules import adopted_rate, tidy_cost_items
+        rec.cost_items = tidy_cost_items(rec.cost_items) or None
+        rate = adopted_rate(rec.cost_items or [])
+        if rate:
+            rec.cost_per_sqm = rate        # the construction cost / m² follows the rates adopted
     if rec.tags:
         rec.tags = sorted({t.strip().lower() for t in rec.tags if t and t.strip()})
     if rec.property_type:
@@ -114,6 +120,8 @@ def record_from_payload(payload: RecordIn, user: User) -> Record:
     data = payload.model_dump(mode="python")
     if data.get("comparables") is not None:
         data["comparables"] = [c for c in payload.model_dump(mode="json")["comparables"]]
+    if data.get("cost_items") is not None:
+        data["cost_items"] = payload.model_dump(mode="json")["cost_items"]
     rec = Record(**data, created_by_id=user.id)
     _derive(rec)
     return rec
@@ -127,6 +135,8 @@ def apply_changes(rec: Record, body: dict) -> None:
     data = merged.model_dump(mode="python")
     if data.get("comparables") is not None:
         data["comparables"] = merged.model_dump(mode="json")["comparables"]
+    if data.get("cost_items") is not None:
+        data["cost_items"] = merged.model_dump(mode="json")["cost_items"]
     for key in body:
         setattr(rec, key, data[key])
 
