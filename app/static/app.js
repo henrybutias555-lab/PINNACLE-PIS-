@@ -159,8 +159,16 @@ function startApp() {
   const ai = state.health && state.health.ai_enabled;
   const pill = $("#ai-status");
   const aiName = { gemini: "Gemini", claude: "Claude" }[state.health && state.health.ai_provider] || "AI";
-  pill.textContent = ai ? `AI: ${aiName} connected` : "AI: offline (rule-based)";
-  pill.className = "pill " + (ai ? "ok" : "warn");
+  const check = state.health && state.health.ai_check;
+  if (ai && check && check.ok === true) {
+    pill.textContent = `AI: ${aiName} ✓ working`; pill.className = "pill ok";
+  } else if (ai && check && check.ok === false) {
+    pill.textContent = `AI: ${aiName} problem — built-in reader in use`; pill.className = "pill warn";
+  } else {
+    pill.textContent = ai ? `AI: ${aiName} connected` : "AI: built-in reader";
+    pill.className = "pill " + (ai ? "ok" : "warn");
+  }
+  pill.title = check ? `${check.model || ""}: ${check.detail || ""}` : "Reports are read by the built-in reader; add GEMINI_API_KEY to add Gemini";
   $$("[data-min-role]").forEach((el) => el.classList.toggle("hidden", !can(el.dataset.minRole)));
   if (state.health && state.health.max_upload_mb) {
     $("#upload-hint").textContent = `PDF, Word (.docx), text or scanned images — single or bulk · up to ${state.health.max_upload_mb} MB per file`;

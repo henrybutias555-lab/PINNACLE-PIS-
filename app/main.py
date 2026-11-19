@@ -70,6 +70,13 @@ def _fix_basis_values() -> int:
     return changed
 
 
+def _safe_self_check(module) -> None:
+    try:
+        module.self_check()
+    except Exception:  # never let the check affect the site
+        log.exception("Gemini self-check crashed")
+
+
 def init_db() -> None:
     """Create tables and the first admin account. Safe to call repeatedly and concurrently."""
     global _initialised
@@ -97,6 +104,10 @@ def init_db() -> None:
                                 settings.admin_email)
                 except IntegrityError:  # another instance created it first
                     db.rollback()
+        if settings.ai_provider == "gemini":
+            # Check, in the background, that the key works and the model reads reports correctly.
+            from .services import gemini as _gemini
+            threading.Thread(target=_safe_self_check, args=(_gemini,), daemon=True).start()
         log.info("AI extraction/commentary: %s", f"{settings.ai_provider} ({settings.ai_model})" if settings.ai_enabled
                  else "disabled (no GEMINI_API_KEY or ANTHROPIC_API_KEY)")
         _initialised = True
@@ -253,10 +264,17 @@ def healthz():
     return {"status": "alive", "build": BUILD}
 
 
+def _ai_check() -> dict | None:
+    if settings.ai_provider != "gemini":
+        return None
+    from .services.gemini import STATUS
+    return {k: STATUS.get(k) for k in ("ok", "model", "detail", "checked_at")}
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok", "ai_enabled": settings.ai_enabled,
-            "ai_provider": settings.ai_provider, "model": settings.ai_model,
+            "ai_provider": settings.ai_provider, "model": settings.ai_model, "ai_check": _ai_check(),
             "default_currency": settings.default_currency, "max_upload_mb": settings.max_upload_mb,
             "build": BUILD, "asset_version": ASSET_VERSION}
 
