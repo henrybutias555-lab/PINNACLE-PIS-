@@ -1013,7 +1013,7 @@ def test_long_text_in_short_fields_saves(client, admin):
     assert r.status_code == 200, r.text
     rec = r.json()
     assert (rec["state_of_repair"], rec["overall_marketability"], rec["user_conformity"]) == (
-        "Good", "Very good", "Conforming")
+        "Good", "Excellent / Very good", "Conforming")
     assert len(rec["gps_address"]) <= 80
     # update after a re-run (the exact request that failed live)
     client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin)
@@ -1466,8 +1466,8 @@ def test_report_grade_wins_over_reading(client, admin, monkeypatch):
 
     text = ("MARKETABILITY\nLocation | Very Good\nAccessibility | Good\nState of repair: Very good\n"
             "Neighbourhood\nVery Good\nOverall marketability: Good\n")
-    assert ratings_from_text(text) == {"location_rating": "Very good", "accessibility_rating": "Good",
-                                       "state_of_repair": "Very good", "neighbourhood_rating": "Very good",
+    assert ratings_from_text(text) == {"location_rating": "Excellent / Very good", "accessibility_rating": "Good",
+                                       "state_of_repair": "Excellent / Very good", "neighbourhood_rating": "Excellent / Very good",
                                        "overall_marketability": "Good"}
     # a sentence giving two grades is not guessed
     assert "location_rating" not in ratings_from_text("The location is good but the access road is poor.")
@@ -1479,7 +1479,7 @@ def test_report_grade_wins_over_reading(client, admin, monkeypatch):
     rep = client.post("/api/reports/upload?sync=true", headers=admin,
                       files=[("files", ("g.txt", text.encode(), "text/plain"))]).json()[0]
     rec = rep["draft"]["records"][0]
-    assert rec["location_rating"] == "Very good" and rec["state_of_repair"] == "Very good"
+    assert rec["location_rating"] == "Excellent / Very good" and rec["state_of_repair"] == "Excellent / Very good"
     assert rec["accessibility_rating"] == "Good" and "location_rating" in rec["autofilled"]
 
 
@@ -1566,3 +1566,21 @@ def test_rate_adopted_is_construction_cost(client, admin):
                       files=[("files", ("drc.txt", text, "text/plain"))]).json()[0]
     rec = rep["draft"]["records"][0]
     assert rec["category"] == "valuation" and rec["cost_per_sqm"] == 4500
+
+
+def test_very_good_and_excellent_are_one_grade(client, admin):
+    top = "Excellent / Very good"
+    a = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "GradeA",
+                                                         "overall_marketability": "Very good", "location_rating": "excellent"}).json()
+    b = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "GradeB",
+                                                         "overall_marketability": "Excellent", "state_of_repair": "very good"}).json()
+    assert a["overall_marketability"] == b["overall_marketability"] == a["location_rating"] == b["state_of_repair"] == top
+
+    from app.database import SessionLocal
+    from app.main import _fix_rating_values
+    from app.models import Record
+    with SessionLocal() as db:
+        old = Record(category="valuation", currency="GHS", location="GradeOld", overall_marketability="Very good")
+        db.add(old); db.commit(); oid = old.id
+    assert _fix_rating_values() >= 1
+    assert client.get(f"/api/records/{oid}", headers=admin).json()["overall_marketability"] == top

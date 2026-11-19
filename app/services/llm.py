@@ -92,12 +92,12 @@ _RECORD_PROPS = {
     "planning_status": {"type": ["string", "null"], "description": 'Building / development permit and zoning status'},
     "inspection_date": {"type": ["string", "null"], "description": 'Date of inspection, YYYY-MM-DD'},
     "forced_sale_value": {"type": ["number", "null"], "description": 'Forced sale value as a number'},
-    "location_rating": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor'},
-    "accessibility_rating": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor'},
-    "state_of_repair": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor / Dilapidated'},
+    "location_rating": {"type": ["string", "null"], "description": 'Excellent / Very good | Good | Fair | Poor'},
+    "accessibility_rating": {"type": ["string", "null"], "description": 'Excellent / Very good | Good | Fair | Poor'},
+    "state_of_repair": {"type": ["string", "null"], "description": 'Excellent / Very good | Good | Fair | Poor | Dilapidated'},
     "user_conformity": {"type": ["string", "null"], "description": 'Conforming / Non-conforming with zoning'},
-    "neighbourhood_rating": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor'},
-    "overall_marketability": {"type": ["string", "null"], "description": 'Excellent / Very good / Good / Fair / Poor'},
+    "neighbourhood_rating": {"type": ["string", "null"], "description": 'Excellent / Very good | Good | Fair | Poor'},
+    "overall_marketability": {"type": ["string", "null"], "description": 'Excellent / Very good | Good | Fair | Poor'},
     "encumbrances": {"type": ["string", "null"], "description": 'Encumbrances, charges, disputes'},
     "legal_disclaimer": {"type": ["string", "null"], "description": 'Legal disclaimer'},
     "inspection_limitation": {"type": ["string", "null"], "description": 'Limitations of the inspection'},
@@ -146,7 +146,7 @@ yield; and EVERY comparable listed (address, date, price or rent, size, price pe
 highest and best use); location (address, accessibility, land size, GPS coordinates); improvements (building type, \
 accommodation, construction details, services, floor areas, ancillary structures); title (ownership, tenure, source \
 of title, unexpired term, planning status); valuation (date of inspection, date of valuation = record_date, method, \
-market value = capital_value, forced_sale_value); marketability ratings (copy the report's exact grade: "very good" stays Very good, never Good); and assumptions (encumbrances, legal \
+market value = capital_value, forced_sale_value); marketability ratings (one scale: "Excellent / Very good" for a report's "very good" or "excellent" (the same grade), then Good, Fair, Poor; never turn very good into Good); and assumptions (encumbrances, legal \
 disclaimer, inspection limitations, purpose restriction, valuation assumptions = assumptions). Keep text concise.
 - Address details: the Ghana Post GPS digital address (gps_address: only a code like "AK-039-5028", never latitude/longitude, which belong in gps_coordinates), location, MMDA \
 (district), region, property type and client.

@@ -583,7 +583,8 @@ async function loadReports() {
 
 /* Field definitions for the record editor */
 /* Record editor: tabbed like a valuation report. */
-const RATING = ["Excellent", "Very good", "Good", "Fair", "Poor"];
+// "Very good" and "Excellent" mean the same in reports: one top grade.
+const RATING = ["Excellent / Very good", "Good", "Fair", "Poor"];
 const BASES = ["Market Value", "Market Rent", "Fair Value", "Equitable Value", "Investment Value", "Synergistic Value",
   "Marriage Value", "Special Value", "Liquidation Value", "Forced Sale Value", "Reinstatement Cost",
   "Depreciated Replacement Cost", "Mortgage Lending Value"];
@@ -598,7 +599,7 @@ function basisCanonical(v) {
 const SELECTS = {
   basis: BASES,
   rating: RATING,
-  repair: ["Excellent", "Good", "Fair", "Poor", "Dilapidated"],
+  repair: ["Excellent / Very good", "Good", "Fair", "Poor", "Dilapidated"],
   conformity: ["Conforming", "Partly conforming", "Non-conforming"],
 };
 const VALUATION_TABS = [

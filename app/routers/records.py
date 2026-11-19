@@ -28,6 +28,9 @@ SORTABLE = {
 RATING_FIELDS = ("location_rating", "accessibility_rating", "neighbourhood_rating", "overall_marketability")
 
 
+TOP_GRADE = "Excellent / Very good"
+
+
 def normalise_rating(value: str | None, kind: str = "rating") -> str | None:
     """'The property ... appears to be in a good structural and tenantable condition.' -> 'Good'."""
     if value is None or not str(value).strip():
@@ -42,13 +45,14 @@ def normalise_rating(value: str | None, kind: str = "rating") -> str | None:
         if "conform" in low or "in line with" in low or "compatible" in low:
             return "Conforming"
         return v[:255]
-    words = ["very good", "excellent", "good", "fair", "poor", "dilapidated"] if kind == "repair" else \
-        ["very good", "excellent", "good", "fair", "poor"]
-    if len(v) <= 20 and v.title() in [w.title() for w in words] + ["Very Good"]:
-        return "Very good" if low == "very good" else v.capitalize() if low != "very good" else v
+    if low == TOP_GRADE.lower():
+        return TOP_GRADE
+    # Reports use "very good" and "excellent" for the same top grade: one grade here.
+    words = ["very good", "excellent", "outstanding", "good", "fair", "poor", "dilapidated"] if kind == "repair" else \
+        ["very good", "excellent", "outstanding", "good", "fair", "poor"]
     for w in words:
         if re.search(rf"\b{w}\b", low):
-            return w.capitalize() if w != "very good" else "Very good"
+            return TOP_GRADE if w in ("very good", "excellent", "outstanding") else w.capitalize()
     if kind == "repair":
         if re.search(r"newly built|new building|brand new|well maintained|tenantable|sound", low):
             return "Good"
