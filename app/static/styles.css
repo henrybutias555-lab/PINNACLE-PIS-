@@ -236,3 +236,9 @@ label.autofilled input, label.autofilled select, label.autofilled textarea { bor
 .basis-choose select { min-width: 16rem; max-width: 100%; }
 .basis-panel h4 { margin: 1rem 0 .4rem; }
 details.card summary { cursor: pointer; }
+
+.basis-controls { display: flex; gap: .6rem 1rem; flex-wrap: wrap; align-items: center; }
+.basis-controls select, .basis-controls input { min-width: 0; }
+#analysis-basis { min-width: 16rem; }
+#analysis-stamp { margin: .5rem 0 0; }
+#analysis-dates[hidden] { display: none; }

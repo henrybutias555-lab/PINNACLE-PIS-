@@ -1271,3 +1271,14 @@ def test_basis_analysis_endpoint(client, admin):
     assert both["by_location"][0]["yield_pct"] is not None
     rent = client.get("/api/records?location=Rentville&basis_of_value=Market Rent", headers=admin).json()
     assert rent["total"] == 2
+
+
+def test_basis_analysis_period(client, admin):
+    for d, v in (("2023-03-01", 1_000_000), ("2025-06-01", 3_000_000)):
+        client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Datetown",
+                    "basis_of_value": "Market Value", "capital_value": v, "record_date": d})
+    a = client.get("/api/analytics/basis?location=Datetown&basis=Market Value", headers=admin).json()
+    assert a["date_range"] == ["2023-03-01", "2025-06-01"] and a["overall"]["Market Value"]["count"] == 2
+    b = client.get("/api/analytics/basis?location=Datetown&basis=Market Value&date_from=2025-01-01&interval=year",
+                   headers=admin).json()
+    assert b["overall"]["Market Value"]["mean"] == 3_000_000 and b["trend"]["Market Value"][0]["period"] == "2025"

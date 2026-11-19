@@ -49,7 +49,16 @@
         <div id="kpis" class="kpis"></div>
         <div class="card basis-panel">
           <div class="basis-head"><h3>Analysis by basis of value</h3>
-            <label class="basis-choose">Show <select id="analysis-basis" aria-label="Basis of value to analyse"></select></label></div>
+            <div class="basis-controls">
+              <label class="basis-choose">Show <select id="analysis-basis" aria-label="Basis of value to analyse"></select></label>
+              <label class="basis-choose">Period <select id="analysis-period" aria-label="Period">
+                <option value="all">All time</option><option value="12m">Last 12 months</option><option value="this">This year</option>
+                <option value="last">Last year</option><option value="3y">Last 3 years</option><option value="custom">Choose dates…</option></select></label>
+              <span id="analysis-dates" class="basis-choose" hidden><input type="date" id="analysis-from" aria-label="From"> to <input type="date" id="analysis-to" aria-label="To"></span>
+              <label class="basis-choose">Trend by <select id="analysis-interval" aria-label="Trend interval">
+                <option value="month">Month</option><option value="quarter" selected>Quarter</option><option value="year">Year</option></select></label>
+            </div></div>
+          <p id="analysis-stamp" class="muted small"></p>
           <div id="basis-analysis"><p class="muted">Loading…</p></div>
         </div>
         <details class="card"><summary><b>All bases of value at a glance</b></summary><div id="dash-bases"></div></details>

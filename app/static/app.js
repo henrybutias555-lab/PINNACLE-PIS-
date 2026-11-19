@@ -320,21 +320,49 @@ function setupBasisAnalysis(rows) {
   const want = savedAnalysis();
   if (!opts.some(([v]) => v === want)) opts.unshift([want, want]);
   pick.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}"${v === want ? " selected" : ""}>${esc(t)}</option>`).join("");
-  pick.onchange = () => { try { localStorage.setItem("pis_analysis", pick.value); } catch (_) {} loadBasisAnalysis(pick.value); };
-  loadBasisAnalysis(pick.value);
+  const reload = () => loadBasisAnalysis(pick.value);
+  pick.onchange = () => { try { localStorage.setItem("pis_analysis", pick.value); } catch (_) {} reload(); };
+  const period = $("#analysis-period");
+  period.onchange = () => { $("#analysis-dates").hidden = period.value !== "custom"; if (period.value !== "custom") reload(); };
+  $("#analysis-from").onchange = reload; $("#analysis-to").onchange = reload;
+  $("#analysis-interval").onchange = reload;
+  reload();
 }
+/* Period chosen on the dashboard -> date_from / date_to (valuation dates). */
+function analysisPeriod() {
+  const v = $("#analysis-period")?.value || "all";
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const now = new Date(), y = now.getFullYear();
+  if (v === "12m") { const d = new Date(now); d.setFullYear(y - 1); return { date_from: iso(d), date_to: iso(now), label: "the last 12 months" }; }
+  if (v === "this") return { date_from: `${y}-01-01`, date_to: `${y}-12-31`, label: `${y}` };
+  if (v === "last") return { date_from: `${y - 1}-01-01`, date_to: `${y - 1}-12-31`, label: `${y - 1}` };
+  if (v === "3y") { const d = new Date(now); d.setFullYear(y - 3); return { date_from: iso(d), date_to: iso(now), label: "the last 3 years" }; }
+  if (v === "custom") {
+    const f = $("#analysis-from").value, t = $("#analysis-to").value;
+    return { date_from: f || undefined, date_to: t || undefined, label: `${f || "earliest"} to ${t || "latest"}` };
+  }
+  return { label: "all time" };
+}
+const niceDate = (iso) => (iso ? new Date(iso + "T00:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
 async function loadBasisAnalysis(choice) {
   const box = $("#basis-analysis");
   const [basis, compare] = choice.split("|");
   box.innerHTML = '<p class="muted">Loading…</p>';
   let a;
-  try { a = await api(`/api/analytics/basis?${qs({ basis, compare })}`); } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+  const per = analysisPeriod();
+  const interval = $("#analysis-interval")?.value || "quarter";
+  try { a = await api(`/api/analytics/basis?${qs({ basis, compare, interval, date_from: per.date_from, date_to: per.date_to })}`); } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
   const cur = a.currency || (state.health && state.health.default_currency) || "";
   const bases = a.bases;
+  const now = new Date().toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  $("#analysis-stamp").textContent = `Period: ${per.label}` +
+    (a.date_range ? ` · valuations dated ${niceDate(a.date_range[0])} – ${niceDate(a.date_range[1])}` : "") +
+    (a.undated && !per.date_from && !per.date_to ? ` · ${a.undated} without a valuation date` : "") + ` · figures as at ${now}`;
+  const ivl = { month: "monthly", quarter: "quarterly", year: "yearly" }[a.interval] || "quarterly";
   const word = (b) => (b === "Market Rent" ? "rental opinion" : "value opinion");
   const yr = (b) => (b === "Market Rent" ? " p.a." : "");
   if (!bases.some((b) => a.overall[b])) {
-    box.innerHTML = `<p class="muted">No valuations on the basis of ${esc(bases.join(" or "))} yet. Upload a report or set the basis of value on a record.</p>`;
+    box.innerHTML = `<p class="muted">No valuations on the basis of ${esc(bases.join(" or "))} ${per.date_from || per.date_to ? `for ${esc(per.label)}` : "yet"}. ${per.date_from || per.date_to ? "Try a longer period." : "Upload a report or set the basis of value on a record."}</p>`;
     return;
   }
   const tiles = [];
@@ -362,7 +390,7 @@ async function loadBasisAnalysis(choice) {
     ? sect("By location", "Location", a.by_location) + sect("By property type", "Property type", a.by_property_type)
     : `<div class="grid two"><div>${sect("By location", "Location", a.by_location)}</div><div>${sect("By property type", "Property type", a.by_property_type)}</div></div>`}
     ${sect("By district (MMDA)", "District", a.by_district)}
-    <div class="${bases.length > 1 ? "grid two" : ""}">${bases.map((b, i) => `<div><h4>Trend — average ${esc(word(b))} (${esc(b)}, quarterly)</h4>
+    <div class="${bases.length > 1 ? "grid two" : ""}">${bases.map((b, i) => `<div><h4>Trend — average ${esc(word(b))} (${esc(b)}, ${ivl})</h4>
       ${a.trend[b].length ? `<div class="chart-box"><canvas id="basis-chart-${i}"></canvas></div>` : '<p class="muted small">The trend appears once records have a valuation date.</p>'}</div>`).join("")}</div>`;
   bases.forEach((b, i) => {
     if (!a.trend[b].length) return;
