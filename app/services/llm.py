@@ -63,7 +63,11 @@ _RECORD_PROPS = {
     "capital_value": _NUM, "annual_rent": _NUM, "yield_pct": _NUM,
     "value_per_sqm": _NUM, "rent_per_sqm": _NUM, "assumptions": _STR,
     "comparables": {"type": ["array", "null"], "items": _COMPARABLE},
-    "total_cost": _NUM, "cost_per_sqm": _NUM,
+    "total_cost": _NUM,
+    "cost_per_sqm": {"type": ["number", "null"],
+                     "description": "Construction cost per m². Reports call it the 'rate' or 'rate adopted' (e.g. in "
+                                    "the cost approach / DRC computation: 'Rate adopted GH¢ 4,500 per m²'). Also for "
+                                    "valuation reports."},
     "cost_breakdown": {"anyOf": [_BREAKDOWN, {"type": "null"}]},
     "specification": _STR,
     "avg_price": _NUM, "avg_monthly_rent": _NUM, "supply_units": _INT, "demand_level": _STR,

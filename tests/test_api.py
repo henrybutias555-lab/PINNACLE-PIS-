@@ -1552,3 +1552,17 @@ def test_method_as_written_in_report(client, admin, monkeypatch):
         b"Approaches.\n"), "text/plain"))]).json()[0]
     rec = rep["draft"]["records"][0]
     assert rec["method"] == "Market Comparative and Cost Approaches" and rec["autofilled"]["method"]
+
+
+def test_rate_adopted_is_construction_cost(client, admin):
+    from app.services.rules import construction_rate
+    assert construction_rate("Rate adopted: GH¢ 4,500.00 per m²") == 4500
+    assert construction_rate("Item | Area (m²) | Rate (GH¢/m²) | Amount\nMain building | 206.55 | 4,800 | 991,440") == 4800
+    assert construction_rate("A capitalisation rate of 8% was adopted.") is None
+    assert construction_rate("The yield rate adopted: 8%") is None
+    text = (b"VALUATION REPORT\nLocation: Rateville, Accra\nMarket value: GH\xc2\xa2 2,300,000\n"
+            b"COST APPROACH\nGross floor area: 206.55 m\xc2\xb2\nRate adopted: GH\xc2\xa2 4,500 per m\xc2\xb2\n")
+    rep = client.post("/api/reports/upload?sync=true", headers=admin,
+                      files=[("files", ("drc.txt", text, "text/plain"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert rec["category"] == "valuation" and rec["cost_per_sqm"] == 4500

@@ -337,7 +337,7 @@ async function loadDashboard() {
   $("#kpis").innerHTML = [
     kpi("Records in database", fmt(s.record_count), Object.entries(s.by_category).map(([k, v]) => `${v} ${k}`).join(" · ") || "No data yet"),
     basisKpiHTML(),
-    kpi("Avg construction cost / m²", m.cost_per_sqm ? `${cur} ${fmt(m.cost_per_sqm.mean)}` : "—", m.cost_per_sqm ? `${m.cost_per_sqm.count} records` : ""),
+    kpi("Avg construction cost / m² (rate)", m.cost_per_sqm ? `${cur} ${fmt(m.cost_per_sqm.mean)}` : "—", m.cost_per_sqm ? `${m.cost_per_sqm.count} record${m.cost_per_sqm.count === 1 ? "" : "s"}` : "from cost reports and rates adopted"),
     kpi("Avg yield", m.yield_pct ? `${fmt(m.yield_pct.mean, 2)}%` : "—", m.yield_pct ? `${m.yield_pct.count} records` : ""),
     kpi("Reports awaiting review", fmt(pending), "in the latest uploads"),
   ].join("");
@@ -621,6 +621,7 @@ const VALUATION_TABS = [
     ["forced_sale_value", "Forced sale value", "num"]],
     [["currency", "Currency"], ["annual_rent", "Market rent (annual)", "num"], ["yield_pct", "Yield %", "num"],
      ["value_per_sqm", "Value / m²", "num"], ["rent_per_sqm", "Rent / m² p.a.", "num"],
+     ["cost_per_sqm", "Construction cost / m² (rate adopted)", "num"],
      ["valuation_basis", "Capital / rental / both"], ["valuer", "Valuer identity", "wide"],
      ["property_valued", "Property valued (summary)", "text"]]],
   ["marketability", "6. Marketability", [["location_rating", "Location rating", "rating"],
@@ -636,7 +637,7 @@ const [P_TAB, L_TAB, I_TAB, , , , A_TAB, ATT_TAB] = VALUATION_TABS;
 const TABS_BY_CATEGORY = {
   valuation: VALUATION_TABS,
   cost: [P_TAB, L_TAB, I_TAB, ["cost", "Cost", [["purpose", "Purpose", "purpose"], ["record_date", "Date", "date"],
-    ["currency", "Currency"], ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Cost / m²", "num"],
+    ["currency", "Currency"], ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Construction cost / m² (rate)", "num"],
     ["specification", "Specification"]]], A_TAB, ATT_TAB],
   housing: [L_TAB, ["housing", "Housing market", [["purpose", "Purpose", "purpose"], ["record_date", "Date", "date"],
     ["currency", "Currency"], ["property_type", "Property type", "ptype"], ["avg_price", "Average price", "num"],
@@ -1210,7 +1211,7 @@ const GRID_COLS = [
   ["capital_value", "Market value", "num"], ["forced_sale_value", "Forced sale value", "num"],
   ["overall_marketability", "Overall marketability"],
   ["annual_rent", "Annual rent", "num"], ["yield_pct", "Yield %", "num"], ["method", "Method"],
-  ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Cost / m²", "num"], ["avg_price", "Avg price", "num"],
+  ["total_cost", "Total cost", "num"], ["cost_per_sqm", "Rate (cost / m²)", "num"], ["avg_price", "Avg price", "num"],
   ["avg_monthly_rent", "Avg rent / month", "num"], ["currency", "Currency"], ["tags", "Tags", "tags"], ["notes", "Notes"],
 ];
 state.sheet = { on: false, items: [], dirty: {} };

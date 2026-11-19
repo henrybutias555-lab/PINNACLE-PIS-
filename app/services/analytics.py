@@ -276,7 +276,8 @@ def trend(records: list[Record], metric: str, interval: str = "quarter") -> list
 
 def cross_analysis(records: list[Record], interval: str = "year") -> list[dict]:
     """Construction cost per m² vs capital value per m² over time (same currency)."""
-    cost = {p["period"]: p for p in trend([r for r in records if r.category == "cost"], "cost_per_sqm", interval)}
+    # construction cost per m²: cost reports and the 'rate adopted' in valuation reports
+    cost = {p["period"]: p for p in trend([r for r in records if r.cost_per_sqm], "cost_per_sqm", interval)}
     value = {p["period"]: p for p in trend([r for r in records if r.category == "valuation"], "value_per_sqm", interval)}
     rows = []
     for period in sorted(set(cost) | set(value)):
