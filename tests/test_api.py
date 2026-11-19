@@ -1168,3 +1168,43 @@ No.        Location              Description          Date              Price (G
     assert out[2] == "No. | Location | Description | Date | Price (GH¢)"
     assert out[3] == "1 | East Legon Hills | 4-bedroom house | March 2023 | 2,100,000"
     assert out[4] == "2 | Santeo | 5-bedroom house | June 2023 | 2,450,000"
+
+
+def test_gemini_self_check(monkeypatch):
+    import json as _json
+    from types import SimpleNamespace
+
+    from google.genai import errors, types
+
+    from app.config import settings
+    from app.services import gemini
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(settings, "gemini_model", "gemini-old")
+    answer = {"report_type": "valuation", "records": [{"category": "valuation", "capital_value": 3000000,
+                                                        "district": "Korle Klottey Municipal", "tenure": "Leasehold"}]}
+
+    class FakeModels:
+        def generate_content(self, model, contents, config):
+            if model == "gemini-old":
+                raise errors.ClientError(404, {"error": {"code": 404, "message": "model not found", "status": "NOT_FOUND"}})
+            return SimpleNamespace(text=_json.dumps(answer),
+                                   candidates=[SimpleNamespace(finish_reason=types.FinishReason.STOP)])
+
+        def list(self):
+            return [SimpleNamespace(name="models/gemini-9.0-flash", supported_actions=["generateContent"]),
+                    SimpleNamespace(name="models/gemini-9.0-flash-preview", supported_actions=["generateContent"]),
+                    SimpleNamespace(name="models/text-embedding-004", supported_actions=["embedContent"])]
+
+    monkeypatch.setattr(gemini, "_client", lambda: SimpleNamespace(models=FakeModels()))
+    status = gemini.self_check()
+    assert status["ok"] is True and status["model"] == "gemini-9.0-flash"
+    assert "switched to gemini-9.0-flash" in status["detail"] and "3,000,000" in status["detail"]
+
+    class BadKey(FakeModels):
+        def generate_content(self, model, contents, config):
+            raise errors.ClientError(403, {"error": {"code": 403, "message": "API key not valid", "status": "PERMISSION_DENIED"}})
+
+    monkeypatch.setattr(gemini, "_client", lambda: SimpleNamespace(models=BadKey()))
+    status = gemini.self_check()
+    assert status["ok"] is False and "invalid" in status["detail"]

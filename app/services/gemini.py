@@ -6,6 +6,7 @@ PIS_AI_PROVIDER, or automatically from whichever API key is configured.
 from __future__ import annotations
 
 import copy
+import re
 import json
 import logging
 import mimetypes
@@ -124,3 +125,79 @@ def extract_report(path: Path, file_type: str, text: str, default_currency: str)
 
 def market_commentary(prompt: str) -> str:
     return _call(COMMENTARY_SYSTEM, [prompt], max_tokens=8000).strip()
+
+
+# ------------------------------------------------------------------ self-check
+
+STATUS: dict = {"checked": False, "ok": None, "model": None, "detail": "not checked yet", "checked_at": None}
+
+SAMPLE_REPORT = """VALUATION REPORT
+We were instructed by Example Bank Ltd to value the property for mortgage purposes.
+LOCATION: The property is at Osu, Accra, within the Korle Klottey Municipal Assembly.
+TENURE: Leasehold, 60 years unexpired.
+DESCRIPTION: A two-storey detached house with a gross floor area of 250 square metres.
+VALUATION: We are of the opinion that the Market Value is GH¢3,000,000.00
+(Three Million Ghana Cedis) and the Forced Sale Value is GH¢2,100,000.00."""
+
+
+def _available_models() -> list[str]:
+    """Gemini models this key may use for text generation, best first."""
+    names = []
+    for m in _client().models.list():
+        actions = getattr(m, "supported_actions", None) or []
+        name = (m.name or "").removeprefix("models/")
+        if "generateContent" in actions and name.startswith("gemini"):
+            names.append(name)
+
+    def rank(n: str):
+        version = re.search(r"gemini-(\d+(?:\.\d+)?)", n)
+        v = float(version.group(1)) if version else 0
+        stable = not re.search(r"preview|exp|latest|tts|image|live|audio|embedding|thinking", n)
+        return (stable, "flash" in n and "lite" not in n, v, "pro" in n)
+
+    return sorted(set(names), key=rank, reverse=True)
+
+
+def self_check() -> dict:
+    """Send a small sample report through the real extraction and check the answer.
+    If the configured model no longer exists, switch to the best model the key can use."""
+    import datetime as _dt
+    import logging
+
+    log_ = logging.getLogger("pis")
+    STATUS.update(checked=True, checked_at=_dt.datetime.now(_dt.timezone.utc).isoformat())
+    if not api_key():
+        STATUS.update(ok=False, model=None, detail="GEMINI_API_KEY is not set")
+        return STATUS
+
+    def attempt() -> tuple[bool, str]:
+        from pathlib import Path as _P
+        try:
+            draft = extract_report(_P("sample.txt"), "txt", SAMPLE_REPORT, "GHS")
+        except AIError as exc:
+            return False, str(exc)
+        rec = (draft.get("records") or [{}])[0]
+        got = rec.get("capital_value")
+        if got and abs(float(got) - 3_000_000) < 1:
+            return True, (f"read the sample report correctly (market value {got:,.0f}, "
+                          f"MMDA {rec.get('district') or '-'}, tenure {rec.get('tenure') or '-'})")
+        return False, f"answered, but the sample market value came back as {got!r}"
+
+    ok, detail = attempt()
+    if not ok and ("not found" in detail or "404" in detail):
+        try:
+            models = _available_models()
+        except Exception as exc:  # listing models failed too
+            models = []
+            detail += f"; could not list models ({type(exc).__name__})"
+        for candidate in models[:4]:
+            log_.warning("Gemini model %s unavailable; trying %s", settings.gemini_model, candidate)
+            settings.gemini_model = candidate
+            ok, detail = attempt()
+            if ok:
+                detail += f" (switched to {candidate}; set PIS_GEMINI_MODEL={candidate} to keep it)"
+                break
+    STATUS.update(ok=ok, model=settings.gemini_model, detail=detail)
+    (log_.info if ok else log_.error)("Gemini self-check %s using %s: %s", "PASSED" if ok else "FAILED",
+                                      settings.gemini_model, detail)
+    return STATUS
