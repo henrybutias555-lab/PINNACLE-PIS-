@@ -349,7 +349,7 @@ async function loadDashboard() {
   const locs = Object.entries(s.top_locations);
   $("#dash-locations").innerHTML = locs.length ? table(["Location", "Records"], locs.map(([k, v]) => [esc(k), { v: fmt(v), num: true }])) : '<p class="muted">No records yet.</p>';
   $("#dash-reports").innerHTML = reports.length ? table(["Report", "Type", "Status"], reports.map((r) => [esc(r.title || r.filename), esc(r.report_type || "—"), statusPill(r.status)])) : '<p class="muted">No reports uploaded yet.</p>';
-  lineChart("dash-chart", t.series.map((p) => p.period), [{ label: `Value opinion / m² (${t.currency || cur})`, data: t.series.map((p) => p.mean) }]);
+  lineChart("dash-chart", t.series.map((p) => p.period), [{ label: `Valuation opinion / m² (${t.currency || cur})`, data: t.series.map((p) => p.mean) }]);
   showSuspects($("#dash-warning"), s.suspect_values, cur);
 }
 /* Valuations whose figure looks mis-read (e.g. 2,300 for 2,300,000): listed, kept out of averages. */
@@ -358,7 +358,7 @@ function showSuspects(box, list, cur) {
   if (!list || !list.length) { box.hidden = true; box.innerHTML = ""; return; }
   box.hidden = false;
   box.innerHTML = `<b>⚠ ${list.length} valuation${list.length === 1 ? "" : "s"} with a value that looks too low</b> — left out of the averages until corrected:
-    <ul>${list.map((x) => `<li>Ref ${x.id} ${esc(x.label)}: value opinion ${esc(cur)} ${fmt(x.capital_value)}${x.value_per_sqm != null ? ` (${esc(cur)} ${fmt(x.value_per_sqm, 2)} per m²)` : ""}
+    <ul>${list.map((x) => `<li>Ref ${x.id} ${esc(x.label)}: valuation opinion ${esc(cur)} ${fmt(x.capital_value)}${x.value_per_sqm != null ? ` (${esc(cur)} ${fmt(x.value_per_sqm, 2)} per m²)` : ""}
       <button class="btn small fix-suspect" data-id="${x.id}">Open &amp; correct</button></li>`).join("")}</ul>`;
   $$(".fix-suspect", box).forEach((b) => (b.onclick = async () => {
     try { const rec = await api(`/api/records/${b.dataset.id}`); state.lastTab = "valuation"; openRecord(rec); } catch (e) { toast(e.message, true); }
@@ -468,7 +468,7 @@ async function loadBasisAnalysis(choice) {
     (a.date_range ? ` · valuations dated ${niceDate(a.date_range[0])} – ${niceDate(a.date_range[1])}` : "") +
     (a.undated && !per.date_from && !per.date_to ? ` · ${a.undated} without a valuation date` : "") + ` · figures as at ${now}`;
   const ivl = { month: "monthly", quarter: "quarterly", year: "yearly" }[a.interval] || "quarterly";
-  const word = (b) => (b === "Market Rent" ? "rental opinion" : "value opinion");
+  const word = (b) => (b === "Market Rent" ? "rental opinion" : "valuation opinion");
   const yr = (b) => (b === "Market Rent" ? " p.a." : "");
   if (!bases.some((b) => a.overall[b])) {
     box.innerHTML = `<p class="muted">No valuations on the basis of ${esc(bases.join(" or "))} ${per.date_from || per.date_to ? `for ${esc(per.label)}` : "yet"}. ${per.date_from || per.date_to ? "Try a longer period." : "Upload a report or set the basis of value on a record."}</p>`;
@@ -480,7 +480,7 @@ async function loadBasisAnalysis(choice) {
     tiles.push(kpi(`Average ${word(b)} — ${b}`, o ? `${cur} ${fmt(o.mean)}${yr(b)}` : "—",
       o ? `${o.count} valuation${o.count === 1 ? "" : "s"} · median ${fmt(o.median)}` : "none yet"));
     if (o) tiles.push(kpi(`Range — ${b}`, `${fmt(o.min)} – ${fmt(o.max)}`, `${cur}${yr(b)}`));
-    if (o && o.per_sqm) tiles.push(kpi(`Average per m² — ${b}`, `${cur} ${fmt(o.per_sqm)}`, "value opinion ÷ floor area"));
+    if (o && o.per_sqm) tiles.push(kpi(`Average per m² — ${b}`, `${cur} ${fmt(o.per_sqm)}`, "valuation opinion ÷ floor area"));
   });
   if (a.yield_pct != null) tiles.push(kpi("Implied yield", `${fmt(a.yield_pct, 2)}%`, "average rent ÷ average value"));
   const head = (first) => [first, ...bases.flatMap((b) => [{ t: bases.length > 1 ? `${b}: no.` : "Valuations", num: true },
@@ -1477,7 +1477,7 @@ $("#import-file").addEventListener("change", async (e) => {
 });
 
 /* ---------------- Intelligence ---------------- */
-const METRIC_OPTIONS = [["value_per_sqm", "Value opinion / m²"], ["capital_value", "Value opinion"], ["annual_rent", "Rental opinion (annual)"], ["rent_per_sqm", "Rental opinion / m²"],
+const METRIC_OPTIONS = [["value_per_sqm", "Valuation opinion / m²"], ["capital_value", "Valuation opinion"], ["annual_rent", "Rental opinion (annual)"], ["rent_per_sqm", "Rental opinion / m²"],
   ["yield_pct", "Yield %"], ["cost_per_sqm", "Construction cost / m²"], ["avg_price", "Avg house price"], ["avg_monthly_rent", "Avg monthly rent"], ["affordability_ratio", "Affordability ratio"]];
 $("#intel-filters").innerHTML = filterFormHTML(false);
 $("#trend-metric").innerHTML = METRIC_OPTIONS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
@@ -1518,7 +1518,7 @@ async function loadCross() {
   const f = intelFilters(); delete f.category;
   const c = await api("/api/analytics/cross?" + qs(f));
   lineChart("cross-chart", c.rows.map((r) => r.period), [
-    { label: `Value opinion / m² (${c.currency || ""})`, data: c.rows.map((r) => r.value_per_sqm) },
+    { label: `Valuation opinion / m² (${c.currency || ""})`, data: c.rows.map((r) => r.value_per_sqm) },
     { label: "Construction cost / m²", data: c.rows.map((r) => r.cost_per_sqm) },
   ], { type: "bar" });
 }
@@ -1526,7 +1526,7 @@ async function loadBreakdown() {
   const b = await api("/api/analytics/breakdown?" + qs({ ...intelFilters(), group_by: $("#group-by").value }));
   const groups = $("#group-by").value.split(",");
   if (!b.rows.length) { $("#breakdown-table").innerHTML = '<p class="muted">No data.</p>'; return; }
-  const cols = [["value_per_sqm", "Value opinion/m²"], ["capital_value", "Value opinion"], ["annual_rent", "Rental opinion"], ["yield_pct", "Yield %"], ["cost_per_sqm", "Cost/m²"], ["avg_price", "Avg price"], ["avg_monthly_rent", "Avg rent/mo"]]
+  const cols = [["value_per_sqm", "Valuation opinion/m²"], ["capital_value", "Valuation opinion"], ["annual_rent", "Rental opinion"], ["yield_pct", "Yield %"], ["cost_per_sqm", "Cost/m²"], ["avg_price", "Avg price"], ["avg_monthly_rent", "Avg rent/mo"]]
     .filter(([k]) => b.rows.some((r) => r[k] != null));
   $("#breakdown-table").innerHTML = `<p class="muted small">Averages in ${esc(b.currency || "—")}</p>` + table(
     [...groups.map((g) => g.replace("_", " ")), { t: "Records", num: true }, ...cols.map(([, l]) => ({ t: l, num: true }))],

@@ -1067,7 +1067,7 @@ def test_dashboard_leaves_out_misread_values(client, admin):
     assert [x["id"] for x in s["suspect_values"]] == [bad]
     assert s["metrics"]["capital_value"]["mean"] == 2000000          # the 2,300 is not averaged in
     assert s["metrics"]["value_per_sqm"]["mean"] == 10000
-    assert s["metrics"]["capital_value"]["label"] == "Value opinion"
+    assert s["metrics"]["capital_value"]["label"] == "Valuation opinion"
     client.patch(f"/api/records/{bad}", headers=admin, json={"capital_value": 2300000})  # corrected
     s = client.get("/api/analytics/summary?location=Zz Test Area", headers=admin).json()
     assert s["suspect_values"] == [] and s["metrics"]["capital_value"]["count"] == 2
