@@ -102,6 +102,89 @@ def by_basis(records: list[Record]) -> list[dict]:
     return out
 
 
+def _on_basis(r: Record, basis: str) -> bool:
+    """Does this valuation give an opinion on this basis?"""
+    if basis == "Market Rent":
+        return bool(r.annual_rent) or r.basis_of_value == "Market Rent"
+    if basis == "Forced Sale Value":
+        return bool(r.forced_sale_value) or r.basis_of_value == "Forced Sale Value"
+    if basis == "Not stated":
+        return not r.basis_of_value
+    return r.basis_of_value == basis
+
+
+def _basis_stats(items: list[tuple[Record, float]], per_sqm: bool) -> dict | None:
+    if not items:
+        return None
+    figs = [f for _, f in items]
+    pers = [f / r.size_sqm for r, f in items if r.size_sqm] if per_sqm else []
+    return {"count": len(figs), "mean": round(statistics.fmean(figs), 2), "median": round(statistics.median(figs), 2),
+            "min": round(min(figs), 2), "max": round(max(figs), 2),
+            "per_sqm": round(statistics.fmean(pers), 2) if pers else None}
+
+
+def basis_analysis(records: list[Record], basis: str, compare: str | None = None, interval: str = "quarter") -> dict:
+    """Analysis of the opinions of value on one basis (optionally against a second basis, e.g.
+    Market Value against Market Rent): overall figures, by location, by property type, trend."""
+    bad = {r.id for r in suspect_values(records)}
+    vals = [r for r in records if r.category == "valuation" and r.id not in bad]
+    currency = dominant_currency(vals)
+    vals = [r for r in vals if (r.currency or currency) == currency]
+    bases = [basis] + ([compare] if compare and compare != basis else [])
+
+    def items(recs, b):
+        out = []
+        for r in recs:
+            if _on_basis(r, b):
+                f = basis_figure(r, b)
+                if f:
+                    out.append((r, float(f)))
+        return out
+
+    def group(key):
+        buckets: dict[str, list[Record]] = defaultdict(list)
+        for r in vals:
+            if any(_on_basis(r, b) for b in bases):
+                buckets[key(r) or "unspecified"].append(r)
+        rows = []
+        for name, recs in buckets.items():
+            row = {"name": name}
+            for b in bases:
+                row[b] = _basis_stats(items(recs, b), b != "Market Rent")
+            if len(bases) == 2 and row[bases[0]] and row[bases[1]]:
+                row["yield_pct"] = _yield(row, bases)
+            rows.append(row)
+        rows.sort(key=lambda x: -max((x[b] or {}).get("count", 0) for b in bases))
+        return rows[:15]
+
+    overall = {b: _basis_stats(items(vals, b), b != "Market Rent") for b in bases}
+    out = {"basis": basis, "compare": bases[1] if len(bases) == 2 else None, "bases": bases, "currency": currency,
+           "overall": overall,
+           "by_location": group(lambda r: r.location or r.city),
+           "by_district": group(lambda r: r.district),
+           "by_property_type": group(lambda r: r.property_type),
+           "trend": {}, "excluded_suspect": len(bad)}
+    if len(bases) == 2 and overall[bases[0]] and overall[bases[1]]:
+        out["yield_pct"] = _yield(overall, bases)
+    for b in bases:
+        buckets: dict[str, list[float]] = defaultdict(list)
+        for r, f in items(vals, b):
+            if r.record_date:
+                buckets[_period(r.record_date, interval)].append(f)
+        out["trend"][b] = [{"period": p, "mean": round(statistics.fmean(v), 2), "count": len(v)}
+                           for p, v in sorted(buckets.items())]
+    return out
+
+
+def _yield(row: dict, bases: list[str]) -> float | None:
+    """Rent as a % of capital value, when one basis is a rent and the other a capital value."""
+    if "Market Rent" not in bases:
+        return None
+    rent = row["Market Rent"]["mean"]
+    cap = row[[b for b in bases if b != "Market Rent"][0]]["mean"]
+    return round(rent / cap * 100, 2) if cap else None
+
+
 def summary(records: list[Record]) -> dict:
     suspects = suspect_values(records)
     suspect_ids = {r.id for r in suspects}

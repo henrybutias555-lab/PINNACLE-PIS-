@@ -100,6 +100,8 @@ def apply_filters(stmt: Select, f: RecordFilters) -> Select:
         if f.basis_of_value == "Forced Sale Value":
             # FSV is usually reported alongside a market value
             stmt = stmt.where(or_(Record.basis_of_value == "Forced Sale Value", Record.forced_sale_value.is_not(None)))
+        elif f.basis_of_value == "Market Rent":
+            stmt = stmt.where(or_(Record.basis_of_value == "Market Rent", Record.annual_rent.is_not(None)))
         elif f.basis_of_value == "Not stated":
             stmt = stmt.where(Record.basis_of_value.is_(None))
         else:

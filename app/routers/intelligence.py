@@ -30,6 +30,21 @@ def summary(f: RecordFilters = Depends(filters_dep), _: User = Depends(get_curre
     return data
 
 
+@router.get("/analytics/basis")
+def basis_analysis(
+    f: RecordFilters = Depends(filters_dep),
+    basis: str = Query("Market Value", description="Basis of value to analyse"),
+    compare: str | None = Query(None, description="Optional second basis, e.g. Market Rent"),
+    interval: str = Query("quarter", pattern="^(month|quarter|year)$"),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    f.basis_of_value = None   # the basis is chosen here, not by the filter
+    data = analytics.basis_analysis(_records(db, f), basis, compare, interval)
+    data["scope"] = f.describe()
+    return data
+
+
 @router.get("/analytics/breakdown")
 def breakdown(
     f: RecordFilters = Depends(filters_dep),

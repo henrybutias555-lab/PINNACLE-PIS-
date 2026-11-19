@@ -1249,3 +1249,25 @@ def test_basis_aliases():
     assert normalise_basis("Marriage value of the merged plots") == "Marriage Value"
     assert normalise_basis("rental value") == "Market Rent"
     assert normalise_basis("Market Value VALUATION OPINION") == "Market Value"
+
+
+def test_basis_analysis_endpoint(client, admin):
+    rows = [
+        {"location": "Rentville", "property_type": "Residential", "basis_of_value": "Market Value",
+         "capital_value": 2_000_000, "annual_rent": 100_000, "size_sqm": 200},
+        {"location": "Rentville", "property_type": "Commercial", "basis_of_value": "Market Value",
+         "capital_value": 4_000_000, "annual_rent": 300_000, "size_sqm": 400},
+        {"location": "Rentville", "property_type": "Residential", "basis_of_value": "Fair Value", "capital_value": 1_000_000},
+    ]
+    for row in rows:
+        assert client.post("/api/records", headers=admin, json={"category": "valuation", **row}).status_code == 201
+    a = client.get("/api/analytics/basis?location=Rentville&basis=Market Value", headers=admin).json()
+    assert a["overall"]["Market Value"]["mean"] == 3_000_000 and a["overall"]["Market Value"]["per_sqm"] == 10_000
+    types = {r["name"].lower(): r for r in a["by_property_type"]}
+    assert types["residential"]["Market Value"]["count"] == 1      # Fair Value record not mixed in
+    both = client.get("/api/analytics/basis?location=Rentville&basis=Market Value&compare=Market Rent", headers=admin).json()
+    assert both["overall"]["Market Rent"]["mean"] == 200_000
+    assert both["yield_pct"] == round(200_000 / 3_000_000 * 100, 2)
+    assert both["by_location"][0]["yield_pct"] is not None
+    rent = client.get("/api/records?location=Rentville&basis_of_value=Market Rent", headers=admin).json()
+    assert rent["total"] == 2
