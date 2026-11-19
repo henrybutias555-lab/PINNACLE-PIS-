@@ -42,7 +42,7 @@ _BREAKDOWN = {
 _RECORD_PROPS = {
     "category": {"type": "string", "enum": ["valuation", "cost", "housing"]},
     "title": _STR, "address": _STR,
-    "gps_address": {"type": ["string", "null"], "description": "Ghana Post GPS digital address, e.g. GA-183-8164"},
+    "gps_address": {"type": ["string", "null"], "description": "Ghana Post GPS digital address ONLY: two letters, then digits, e.g. AK-039-5028 or GA-183-8164. Never latitude/longitude (those go in gps_coordinates). null if the report gives no digital address."},
     "location": _STR,
     "district": {"type": ["string", "null"],
                  "description": "MMDA: the local government ASSEMBLY (Metropolitan, Municipal or District Assembly), "
@@ -144,7 +144,7 @@ accommodation, construction details, services, floor areas, ancillary structures
 of title, unexpired term, planning status); valuation (date of inspection, date of valuation = record_date, method, \
 market value = capital_value, forced_sale_value); marketability ratings; and assumptions (encumbrances, legal \
 disclaimer, inspection limitations, purpose restriction, valuation assumptions = assumptions). Keep text concise.
-- Address details: the Ghana Post GPS digital address (gps_address, e.g. "GA-183-8164"), location, MMDA \
+- Address details: the Ghana Post GPS digital address (gps_address: only a code like "AK-039-5028", never latitude/longitude, which belong in gps_coordinates), location, MMDA \
 (district), region, property type and client.
 - "cost": construction cost data. Capture total cost, cost per m² of gross floor area, and the elemental \
 breakdown (preliminaries, substructure, superstructure, finishes, services, external works, contingency, other).

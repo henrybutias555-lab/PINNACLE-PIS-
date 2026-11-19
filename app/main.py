@@ -70,6 +70,29 @@ def _fix_basis_values() -> int:
     return changed
 
 
+def _fix_gps_values() -> int:
+    """Saved digital addresses holding latitude/longitude: move them to GPS coordinates and read the
+    real digital address (AK-039-5028) from the report text when the report is still stored."""
+    from .models import Record, Report
+    from .services.rules import clean_gps_fields
+
+    changed = 0
+    with SessionLocal() as db:
+        for rec in db.scalars(select(Record).where(Record.gps_address.is_not(None))):
+            data = {"gps_address": rec.gps_address, "gps_coordinates": rec.gps_coordinates}
+            if not clean_gps_fields(dict(data)):
+                continue          # already a proper digital address
+            text = ""
+            if rec.report_id:
+                report = db.get(Report, rec.report_id)
+                text = (report.raw_text or "") if report else ""
+            if clean_gps_fields(data, text):
+                rec.gps_address, rec.gps_coordinates = data["gps_address"], data["gps_coordinates"]
+                changed += 1
+        db.commit()
+    return changed
+
+
 def _safe_self_check(module) -> None:
     try:
         module.self_check()
@@ -91,7 +114,7 @@ def init_db() -> None:
             log.info("Database upgraded: added column %s", column)
         for column in widen_columns(engine):
             log.info("Database upgraded: widened column %s", column)
-        fixed = _fix_mmda_values() + _fix_basis_values()
+        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values()
         if fixed:
             log.warning("Corrected %d MMDA value(s) that were not assemblies", fixed)
         with SessionLocal() as db:

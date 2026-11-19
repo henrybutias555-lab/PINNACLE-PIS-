@@ -1321,3 +1321,46 @@ def test_exports_show_dash_for_not_stated(client, admin):
     plan = client.post("/api/imports/records/preview", headers=admin,
                        files={"file": ("same.xlsx", xlsx, "application/octet-stream")}).json()
     assert not any(u["id"] == rid for u in plan["updates"])
+
+
+def test_digital_address_never_holds_coordinates(client, admin, monkeypatch):
+    from app.config import Settings
+    from app.services import llm
+    from app.services.rules import clean_gps_fields, is_digital_address
+
+    # the AI put latitude/longitude into the digital address
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {
+        "report_type": "valuation", "title": "Kumasi house", "records": [{
+            "category": "valuation", "location": "Ahodwo", "gps_address": "6.6666, -1.6163", "currency": "GHS"}]})
+    text = b"VALUATION REPORT\nDigital Address: AK 039 5028\nGPS Coordinates: 6.6666, -1.6163\n"
+    rep = client.post("/api/reports/upload?sync=true", headers=admin,
+                      files=[("files", ("k.txt", text, "text/plain"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert rec["gps_address"] == "AK-039-5028" and rec["gps_coordinates"] == "6.6666, -1.6163"
+
+    # saving: coordinates typed into the digital address move across
+    r = client.post("/api/records", headers=admin, json={
+        "category": "valuation", "location": "Ahodwo", "gps_address": "6°40'N, 1°37'W"}).json()
+    assert r["gps_address"] is None and r["gps_coordinates"] == "6°40'N, 1°37'W"
+    r = client.post("/api/records", headers=admin, json={"category": "valuation", "gps_address": "ak 039 5028"}).json()
+    assert r["gps_address"] == "AK-039-5028"
+    assert is_digital_address("GA-183-8164") and not is_digital_address("5.6396, -0.1676")
+    d = {"gps_address": "5.6396, -0.1676", "gps_coordinates": "5.64, -0.17"}
+    assert clean_gps_fields(d) and d == {"gps_address": None, "gps_coordinates": "5.64, -0.17"}
+
+
+def test_saved_coordinates_in_digital_address_fixed_on_startup(client, admin):
+    from app.database import SessionLocal
+    from app.main import _fix_gps_values
+    from app.models import Record, Report
+
+    with SessionLocal() as db:
+        rep = Report(filename="old.txt", file_type="txt", status="confirmed", file_data=b"x", file_size=1,
+                     raw_text="Digital address: GA-183-8164\nCoordinates: 5.6396, -0.1676")
+        db.add(rep); db.flush()
+        rec = Record(category="valuation", currency="GHS", report_id=rep.id, gps_address="5.6396, -0.1676")
+        db.add(rec); db.commit(); rid = rec.id
+    assert _fix_gps_values() >= 1
+    got = client.get(f"/api/records/{rid}", headers=admin).json()
+    assert got["gps_address"] == "GA-183-8164" and got["gps_coordinates"] == "5.6396, -0.1676"

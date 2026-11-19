@@ -157,6 +157,35 @@ def find_coordinates(text: str) -> str | None:
     return None
 
 
+_COORDS_LIKE = re.compile(r"-?\d{1,3}\.\d{2,}|\d{1,3}\s*°|\b(lat|long|latitude|longitude)\b", re.I)
+
+
+def is_digital_address(value: str | None) -> bool:
+    return bool(value) and bool(GPS_RE.fullmatch(re.sub(r"\s*-\s*", "-", str(value).strip().upper())))
+
+
+def clean_gps_fields(rec: dict, text: str = "") -> bool:
+    """The digital address must be a Ghana Post code (AK-039-5028). Coordinates put there by mistake
+    move to gps_coordinates, and the real digital address is looked for in the report text.
+    Returns True when something changed."""
+    value = rec.get("gps_address")
+    if not value:
+        return False
+    code = GPS_RE.search(str(value).upper())
+    if code and not _COORDS_LIKE.search(str(value)):
+        tidy = f"{code.group(1)}-{code.group(2)}-{code.group(3)}"
+        if tidy != value:
+            rec["gps_address"] = tidy
+            return True
+        return False
+    if not _COORDS_LIKE.search(str(value)):
+        return False          # some other wording (kept for the reviewer to judge)
+    if not rec.get("gps_coordinates"):
+        rec["gps_coordinates"] = str(value).strip()[:80]
+    rec["gps_address"] = (find_gps(text) if text else None) or (code and f"{code.group(1)}-{code.group(2)}-{code.group(3)}") or None
+    return True
+
+
 def find_gps(text: str) -> str | None:
     """Ghana Post GPS digital address, e.g. GA-183-8164."""
     labelled = _labelled(text, ["gps address", "digital address", "ghana post gps", "gps"])
