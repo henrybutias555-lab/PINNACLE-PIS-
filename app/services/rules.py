@@ -193,7 +193,7 @@ _RATING_TOPICS = {
     "neighbourhood_rating": r"neighbou?rhood",
     "overall_marketability": r"marketability",   # not "good and marketable title"
 }
-_GRADES = [("very good", "Very good"), ("excellent", "Excellent"), ("good", "Good"), ("fair", "Fair"),
+_GRADES = [("very good", "Excellent / Very good"), ("excellent", "Excellent / Very good"), ("outstanding", "Excellent / Very good"), ("good", "Good"), ("fair", "Fair"),
            ("poor", "Poor"), ("dilapidated", "Dilapidated")]
 
 
@@ -211,7 +211,7 @@ def ratings_from_text(text: str) -> dict[str, str]:
                 continue
             # the grade may sit on the same line or the next (table cell / label on its own line)
             nxt = lines[i + 1] if i + 1 < len(lines) else ""
-            only_grade = re.fullmatch(r"\W*(?:very good|excellent|good|fair|poor|dilapidated)\W*", nxt, re.I)
+            only_grade = re.fullmatch(r"\W*(?:very good|excellent|outstanding|good|fair|poor|dilapidated)\W*", nxt, re.I)
             for chunk in (ln, nxt if only_grade else ""):
                 low = chunk.lower()
                 for word, grade in _GRADES:

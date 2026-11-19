@@ -109,6 +109,27 @@ def _fix_purpose_values() -> int:
     return changed
 
 
+def _fix_rating_values() -> int:
+    """Saved 'Very good' / 'Excellent' (and other wordings) -> the one standard grade scale."""
+    from .models import Record
+    from .routers.records import RATING_FIELDS, normalise_rating
+
+    fields = list(RATING_FIELDS) + ["state_of_repair"]
+    changed = 0
+    with SessionLocal() as db:
+        for rec in db.scalars(select(Record)):
+            for field in fields:
+                old = getattr(rec, field, None)
+                if not old:
+                    continue
+                new = normalise_rating(old, "repair" if field == "state_of_repair" else "rating")
+                if new and new != old:
+                    setattr(rec, field, new)
+                    changed += 1
+        db.commit()
+    return changed
+
+
 def _safe_self_check(module) -> None:
     try:
         module.self_check()
@@ -130,7 +151,7 @@ def init_db() -> None:
             log.info("Database upgraded: added column %s", column)
         for column in widen_columns(engine):
             log.info("Database upgraded: widened column %s", column)
-        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values() + _fix_purpose_values()
+        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values() + _fix_purpose_values() + _fix_rating_values()
         if fixed:
             log.warning("Corrected %d MMDA value(s) that were not assemblies", fixed)
         with SessionLocal() as db:
