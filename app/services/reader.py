@@ -134,17 +134,23 @@ def _sentences(text: str) -> list[str]:
 
 # ------------------------------------------------------------------ standard names
 
+# Purpose of valuation -> one short label (the report's sentence is not kept).
 PURPOSES = [
-    (r"mortgage|loan|collateral|security|credit|facility|lending|bank", "Mortgage / loan security"),
-    (r"sale|purchase|disposal|acquisition|buy|sell", "Sale / purchase"),
-    (r"insurance|reinstatement", "Insurance"),
-    (r"financial reporting|accounts|ifrs|balance sheet|book", "Financial reporting"),
-    (r"rental|rent review|lease renewal|letting", "Rental assessment"),
-    (r"tax|rating|stamp duty|capital gains", "Taxation / rating"),
-    (r"litigation|dispute|court|arbitration", "Litigation / dispute"),
-    (r"probate|estate administration|succession|inheritance", "Probate / estate"),
-    (r"compulsory acquisition|compensation", "Compulsory acquisition"),
+    (r"\bcompulsory acquisition|\bcompensation\b", "Compulsory acquisition"),
+    (r"\bmortgage|\bloans?\b|\bcollateral|\bsecurity\b|\bcredit\b|\bfacility\b|\blending\b|\bbank", "Mortgage"),
+    (r"\bsale\b|\bsell(?:ing)?\b|\bdisposal\b|\bdivest", "Sale"),
+    (r"\bpurchase\b|\bacquisition\b|\bbuy(?:ing)?\b|\bacquire", "Purchase"),
+    (r"\binsurance\b|\breinstatement\b", "Insurance"),
+    (r"\bfinancial reporting|\baccounts?\b|\bifrs\b|\bbalance sheet|\baudit\b|\basset register", "Financial reporting"),
+    (r"\brent(?:al)?\b|\brent review|\blease renewal|\bletting\b", "Rental"),
+    (r"\btax(?:ation)?\b|\brating\b|\bstamp duty|\bcapital gains", "Taxation"),
+    (r"\blitigation\b|\bdispute\b|\bcourt\b|\barbitration\b", "Litigation"),
+    (r"\bprobate\b|\bestate administration|\bsuccession\b|\binheritance\b", "Probate"),
+    (r"\bpartnership\b|\bjoint venture\b|\bequity\b", "Joint venture / equity"),
 ]
+# when no reason is given: 'to assess the capital / market value of the property'
+GENERIC_PURPOSE = (r"\b(?:capital|market|current|open market) value\b|\bvalue of the (?:property|subject|premises)\b|"
+                   r"\bassess(?:ing|ment)? (?:of )?the value", "Capital value assessment")
 
 METHODS = [
     (r"(?:direct )?(?:sales )?compar(?:ison|ative)(?: method| approach)?|market approach", "Sales Comparison Approach"),
@@ -161,10 +167,17 @@ def standard_purpose(text: str | None) -> str | None:
     if not text:
         return None
     low = text.lower()
-    for pattern, name in PURPOSES:
-        if re.search(pattern, low):
-            return name
-    return _clean(text)[:120] or None
+    hits = []
+    for order, (pattern, name) in enumerate(PURPOSES):
+        m = re.search(pattern, low)
+        if m:
+            hits.append((m.start(), order, name))
+    if hits:
+        return min(hits)[2]       # the reason mentioned first
+    if re.search(GENERIC_PURPOSE[0], low):
+        return GENERIC_PURPOSE[1]
+    clean = _clean(text)
+    return (clean[:60] if len(clean) <= 60 else clean.split(",")[0][:60]).strip() or None
 
 
 def standard_methods(text: str | None) -> str | None:

@@ -174,6 +174,9 @@ class RecordBase(BaseModel):
             data = {k: (None if is_not_stated(v) else v) for k, v in data.items()}
             if data.get("currency") is None and "currency" in data:
                 data.pop("currency")
+            if isinstance(data.get("purpose"), str) and data["purpose"].strip():
+                from .services.reader import standard_purpose
+                data["purpose"] = standard_purpose(data["purpose"])
             if data.get("gps_address"):
                 from .services.rules import clean_gps_fields
                 clean_gps_fields(data)

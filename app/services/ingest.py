@@ -87,6 +87,9 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         rules.clean_gps_fields(rec, report.raw_text or text or "")
         if rec.get("basis_of_value"):
             rec["basis_of_value"] = rules.normalise_basis(rec["basis_of_value"])
+        if rec.get("purpose"):
+            from .reader import standard_purpose
+            rec["purpose"] = standard_purpose(rec["purpose"])
         from ..routers.records import RATING_FIELDS, normalise_rating
         for field in RATING_FIELDS:
             if rec.get(field):
