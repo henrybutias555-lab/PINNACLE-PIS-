@@ -1299,3 +1299,25 @@ def test_not_stated_saved_as_blank(client, admin):
 def test_review_form_marks_empty_fields_not_stated(client):
     js = client.get("/static/app.js").text
     assert 'const NS = "Not stated"' in js and "ns-tag" in js
+
+
+def test_exports_show_dash_for_not_stated(client, admin):
+    import io as _io
+
+    import openpyxl
+
+    rid = client.post("/api/records", headers=admin, json={
+        "category": "valuation", "location": "Dashville", "capital_value": 1_000_000}).json()["id"]
+    xlsx = client.get("/api/exports/evidence?format=xlsx&q=Dashville", headers=admin).content
+    ws = openpyxl.load_workbook(_io.BytesIO(xlsx))["All records"]
+    header = [c.value for c in ws[4]]
+    row = next(r for r in range(5, ws.max_row + 1) if ws.cell(r, 1).value == rid or
+               ws.cell(r, header.index("Ref") + 1).value == rid)
+    assert ws.cell(row, header.index("Tenure") + 1).value == "—"
+    assert ws.cell(row, header.index("Capital value (opinion of value)") + 1).value == 1_000_000
+    csv_text = client.get("/api/exports/evidence?format=csv&q=Dashville", headers=admin).text
+    assert ",—," in csv_text
+    # the unedited file uploaded back changes nothing
+    plan = client.post("/api/imports/records/preview", headers=admin,
+                       files={"file": ("same.xlsx", xlsx, "application/octet-stream")}).json()
+    assert not any(u["id"] == rid for u in plan["updates"])

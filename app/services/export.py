@@ -41,9 +41,12 @@ TITLES = {
 }
 
 
+BLANK = "—"   # shown in exports where the report did not state a value
+
+
 def _cell(value) -> str:
-    if value is None:
-        return ""
+    if value is None or value == "":
+        return BLANK
     if isinstance(value, float):
         return f"{value:,.2f}" if abs(value) < 100 else f"{value:,.0f}"
     if isinstance(value, date):
@@ -58,7 +61,7 @@ def evidence_csv(records: list[Record], category: str) -> str:
     writer = csv.writer(buf)
     writer.writerow(["Ref"] + [c[0] for c in cols])
     for r in records:
-        writer.writerow([r.id] + ["" if getattr(r, f) is None else getattr(r, f) for _, f in cols])
+        writer.writerow([r.id] + [BLANK if getattr(r, f) in (None, "") else getattr(r, f) for _, f in cols])
     return buf.getvalue()
 
 
@@ -206,7 +209,8 @@ class _Book:
         return ws
 
     def table(self, ws, headers: list[str], rows: list[list], formats: list[str | None] | None = None,
-              widths: list[int] | None = None):
+              widths: list[int] | None = None, blank: str | None = None):
+        """blank: text written into empty cells (record tables use "—" = not stated)."""
         from openpyxl.utils import get_column_letter
 
         ws.append(headers)
@@ -215,7 +219,7 @@ class _Book:
             cell = ws.cell(row=start, column=c)
             cell.font, cell.fill, cell.alignment = self.head_font, self.head_fill, self.wrap
         for row in rows:
-            ws.append([_xl_value(v) for v in row])
+            ws.append([blank if blank is not None and v in (None, "", [], {}) else _xl_value(v) for v in row])
         if formats:
             for c, fmt in enumerate(formats, start=1):
                 if fmt:
@@ -239,7 +243,7 @@ def _records_sheet(book: _Book, records: list[Record], name: str = "Records"):
     ws = book.sheet(name)
     book.table(ws, [c[0] for c in RECORD_COLUMNS],
                [[getattr(r, f) for _, f, _ in RECORD_COLUMNS] for r in records],
-               [fmt for _, _, fmt in RECORD_COLUMNS])
+               [fmt for _, _, fmt in RECORD_COLUMNS], blank=BLANK)
 
 
 def evidence_xlsx(records: list[Record], category: str, scope: str) -> bytes:
@@ -250,7 +254,8 @@ def evidence_xlsx(records: list[Record], category: str, scope: str) -> bytes:
     fmts = [None] + ["yyyy-mm-dd" if f == "record_date" else "#,##0" if f in _MONEY_KEYS or f in ("total_cost",)
                      else "#,##0.00" if f in ("size_sqm",) else "0.00" if f in ("yield_pct", "affordability_ratio")
                      else None for _, f in cols]
-    book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in records], fmts)
+    book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in records], fmts,
+               blank=BLANK)
     comparables_sheet(book, records)
     _records_sheet(book, records, "All fields")
     return book.bytes()
@@ -356,7 +361,7 @@ def records_csv(records: list[Record]) -> str:
     writer = csv.writer(buf)
     writer.writerow([c[0] for c in RECORD_COLUMNS])
     for r in records:
-        writer.writerow(["" if getattr(r, f) is None else _xl_value(getattr(r, f)) for _, f, _ in RECORD_COLUMNS])
+        writer.writerow([BLANK if getattr(r, f) in (None, "", [], {}) else _xl_value(getattr(r, f)) for _, f, _ in RECORD_COLUMNS])
     return buf.getvalue()
 
 
@@ -366,7 +371,7 @@ def records_xlsx(records: list[Record], scope: str) -> bytes:
     ws = book.sheet("All records", "Pinnacle Intelligence System: records",
                     f"Pinnacle Estate Surveyors · {scope} · {len(records)} records · prepared {date.today().isoformat()}")
     book.table(ws, [c[0] for c in RECORD_COLUMNS], [[getattr(r, f) for _, f, _ in RECORD_COLUMNS] for r in records],
-               [fmt for _, _, fmt in RECORD_COLUMNS])
+               [fmt for _, _, fmt in RECORD_COLUMNS], blank=BLANK)
     for category, name in (("valuation", "Valuation evidence"), ("cost", "Cost evidence"), ("housing", "Housing data")):
         subset = [r for r in records if r.category == category]
         if not subset:
@@ -376,7 +381,8 @@ def records_xlsx(records: list[Record], scope: str) -> bytes:
         fmts = [None] + ["yyyy-mm-dd" if f == "record_date" else "#,##0" if f in _MONEY_KEYS
                          else "#,##0.00" if f == "size_sqm" else "0.00" if f in ("yield_pct", "affordability_ratio")
                          else None for _, f in cols]
-        book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in subset], fmts)
+        book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in subset], fmts,
+                   blank=BLANK)
     comparables_sheet(book, records)
     return book.bytes()
 
@@ -412,4 +418,4 @@ def comparables_sheet(book, records: list[Record]) -> None:
         return
     ws = book.sheet("Comparables", "Comparables from valuation reports",
                     "Each comparable with the purpose and basis of the valuation it supports")
-    book.table(ws, [c[0] for c in COMPARABLE_COLUMNS], rows, [c[2] for c in COMPARABLE_COLUMNS])
+    book.table(ws, [c[0] for c in COMPARABLE_COLUMNS], rows, [c[2] for c in COMPARABLE_COLUMNS], blank=BLANK)

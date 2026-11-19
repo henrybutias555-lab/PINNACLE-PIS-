@@ -1099,12 +1099,12 @@ function sheetCell(rec, [key, , kind]) {
   v = v ?? "";
   const ro = can("junior") ? "" : " disabled";
   const common = `data-id="${rec.id}" data-key="${key}" data-kind="${kind || ""}"${ro}`;
-  if (kind === "mmda") return `<select ${common}>${mmdaOptions(v, "")}</select>`;
-  if (kind === "basis") { const b = basisCanonical(v); return `<select ${common}><option value=""></option>${(BASES.includes(b) || !b ? BASES : [b, ...BASES]).map((o) => `<option ${o === b ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`; }
+  if (kind === "mmda") return `<select ${common}>${mmdaOptions(v, "—")}</select>`;
+  if (kind === "basis") { const b = basisCanonical(v); return `<select ${common}><option value="">—</option>${(BASES.includes(b) || !b ? BASES : [b, ...BASES]).map((o) => `<option ${o === b ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`; }
   if (kind === "cat") return `<select ${common}>${["valuation", "cost", "housing"].map((c) => `<option ${c === v ? "selected" : ""}>${c}</option>`).join("")}</select>`;
   const type = kind === "num" ? "number" : kind === "date" ? "date" : "text";
   const list = kind && kind.startsWith("list:") ? ` list="${kind.slice(5)}"` : "";
-  return `<input type="${type}"${type === "number" ? ' step="any"' : ""}${list} value="${esc(v)}" ${common}>`;
+  return `<input type="${type}"${type === "number" ? ' step="any"' : ""}${list} value="${esc(v)}"${type === "date" ? "" : ' placeholder="—"'} ${common}>`;
 }
 
 function renderSheet() {
