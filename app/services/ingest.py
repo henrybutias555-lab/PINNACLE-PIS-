@@ -95,6 +95,14 @@ def _process(db: Session, report: Report, path: Path) -> Report:
             rec["state_of_repair"] = normalise_rating(rec["state_of_repair"], "repair")
         if rec.get("user_conformity"):
             rec["user_conformity"] = normalise_rating(rec["user_conformity"], "conformity")
+        # The report's own grade wins (e.g. the reading said Good, the report says Very good).
+        for field, grade in rules.ratings_from_text(report.raw_text or text or "").items():
+            if not rec.get(field):
+                rec.setdefault("autofilled", {})[field] = "the grade written in the report"
+                rec[field] = grade
+            elif rec[field] != grade and str(rec[field]).lower() in {g.lower() for _, g in rules._GRADES}:
+                rec.setdefault("autofilled", {})[field] = f"corrected to the report's grade ({grade}; the reading said {rec[field]})"
+                rec[field] = grade
         if report.extraction_method == "ai":
             # Check the AI's place fields and fill blanks from the report text with the built-in rules.
             place = places.resolve(rec.get("location"), rec.get("address"), rec.get("city"), rec.get("region"),
@@ -116,7 +124,7 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         for field, (value, reason) in filled.items():
             rec[field] = value
         if filled:
-            rec["autofilled"] = {field: reason for field, (_, reason) in filled.items()}
+            rec["autofilled"] = {**(rec.get("autofilled") or {}), **{field: reason for field, (_, reason) in filled.items()}}
     report.draft = draft
     report.report_type = draft.get("report_type")
     report.title = (draft.get("title") or report.filename)[:500]
