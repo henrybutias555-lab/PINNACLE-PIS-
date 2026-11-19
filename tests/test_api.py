@@ -1645,3 +1645,28 @@ def test_main_building_and_external_works(client, admin):
         {"item": "Ground floor", "area_sqm": 100, "rate": 8000},
         {"item": "Boys quarters", "part": "Main building", "area_sqm": 100, "rate": 6000}]}).json()
     assert r["cost_items"][1]["part"] == "Main building" and r["cost_per_sqm"] == 7000
+
+
+def test_forced_sale_value_must_be_below_market_value(client, admin, monkeypatch):
+    from app.config import Settings
+    from app.services import llm
+
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    reading = {"category": "valuation", "location": "FSVville", "currency": "GHS",
+               "capital_value": 2_300_000, "forced_sale_value": 2_300_000}
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {"report_type": "valuation", "title": "F",
+                                                                 "records": [dict(reading)]})
+    rep = client.post("/api/reports/upload?sync=true", headers=admin,
+                      files=[("files", ("f.txt", b"valuation report", "text/plain"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert rec["forced_sale_value"] is None and rec["warnings"]
+    # a wrong saved FSV is not kept on a re-run
+    client.post(f"/api/reports/{rep['id']}/confirm", headers=admin, json={"records": [dict(reading, forced_sale_value=None)]})
+    from app.database import SessionLocal
+    from app.models import Record
+    with SessionLocal() as db:
+        saved = db.query(Record).filter(Record.report_id == rep["id"]).one()
+        saved.forced_sale_value = 2_300_000
+        db.commit()
+    again = client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin).json()["draft"]["records"][0]
+    assert again["forced_sale_value"] is None and any("not below" in w for w in again["warnings"])

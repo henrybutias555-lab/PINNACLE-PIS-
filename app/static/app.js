@@ -887,6 +887,9 @@ function initRecordEditor(el, rec = {}) {
     };
   }
   markAutofilled(el, rec.autofilled);
+  if ((rec.warnings || []).length && !$(".rec-warn", el)) {
+    $(".tab-bar", el).insertAdjacentHTML("beforebegin", `<div class="notice rec-warn">${rec.warnings.map((w) => `⚠ ${esc(w)}`).join("<br>")}</div>`);
+  }
   Object.entries(rec.suggested || {}).forEach(([field, value]) => {
     const c = $(`[name="${field}"]`, el);
     const label = c && c.closest("label");

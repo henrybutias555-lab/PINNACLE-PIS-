@@ -173,6 +173,15 @@ def _keep_saved_values(db: Session, report: Report) -> None:
                 rec["tags"] = merged
                 continue
             new = rec.get(field)
+            if field == "forced_sale_value" and (rec.get("capital_value") or old_values.get("capital_value")) and \
+                    float(value) >= float(rec.get("capital_value") or old_values.get("capital_value")):
+                if new not in (None, "", [], {}):
+                    continue                 # the new reading's (lower) figure stands
+                rec[field] = None            # the saved figure equals the market value: a mis-read, not kept
+                rec.setdefault("warnings", []).append(
+                    f"The saved forced sale value ({value:,.0f}) is not below the market value, so it is not kept: "
+                    "check the report and enter it if it states one.")
+                continue
             if new in (None, "", [], {}) or (field in guessed and new != value):
                 rec[field] = value
                 guessed.pop(field, None)
