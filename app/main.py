@@ -130,6 +130,26 @@ def _fix_rating_values() -> int:
     return changed
 
 
+def _fix_research_docs() -> int:
+    """Papers read before the paper reader existed ('||||' marks, ResearchGate cover as title): read again."""
+    from .models import ResearchDoc
+    from .routers.research import reread
+
+    changed = 0
+    with SessionLocal() as db:
+        for doc in db.scalars(select(ResearchDoc).where(ResearchDoc.file_type == "pdf")):
+            text = doc.text or ""
+            if "|||" in text or "see discussions, stats" in text.lower() or "researchgate" in (doc.title or "").lower() \
+                    or "discussions, stats" in (doc.title or "").lower():
+                try:
+                    reread(doc)
+                    changed += 1
+                except Exception:
+                    log.exception("could not re-read research document %s", doc.id)
+        db.commit()
+    return changed
+
+
 def _safe_self_check(module) -> None:
     try:
         module.self_check()
@@ -151,7 +171,7 @@ def init_db() -> None:
             log.info("Database upgraded: added column %s", column)
         for column in widen_columns(engine):
             log.info("Database upgraded: widened column %s", column)
-        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values() + _fix_purpose_values() + _fix_rating_values()
+        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values() + _fix_purpose_values() + _fix_rating_values() + _fix_research_docs()
         if fixed:
             log.warning("Corrected %d MMDA value(s) that were not assemblies", fixed)
         with SessionLocal() as db:

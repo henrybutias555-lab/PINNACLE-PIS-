@@ -337,3 +337,17 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 @media (prefers-reduced-motion: reduce) { .typing i { animation: none; opacity: .6; } }
 .chat-send { display: flex; gap: .5rem; align-items: flex-end; border-top: 1px solid var(--border); padding-top: .5rem; }
 .chat-send textarea { flex: 1; resize: none; min-height: 2.4rem; max-height: 140px; }
+
+/* Original view */
+.view-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin: .4rem 0 .5rem; }
+.orig-view { max-height: 65vh; overflow: auto; background: color-mix(in srgb, var(--muted) 10%, transparent); border-radius: 8px; padding: .4rem; }
+.pdf-page { display: block; width: 100%; height: auto; margin: 0 auto .5rem; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.pdf-count { margin: 0 0 .3rem; }
+.doc-html { background: #fff; color: #1c2430; padding: 1rem 1.2rem; border-radius: 6px; line-height: 1.55; }
+.doc-html h2, .doc-html h3, .doc-html h4, .doc-html h5 { color: #0f4c5c; margin: 1rem 0 .4rem; }
+.doc-html .doc-table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+.doc-html .doc-table th, .doc-html .doc-table td { border: 1px solid #cfd6dd; padding: .3rem .45rem; vertical-align: top; color: #1c2430; }
+.doc-html .doc-table th { background: #eef2f5; }
+.doc-html .slide { border-bottom: 1px solid #dde3e8; padding-bottom: .5rem; margin-bottom: .5rem; }
+.doc-pre { white-space: pre-wrap; background: #fff; color: #1c2430; padding: 1rem; border-radius: 6px; }
+.doc-img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
