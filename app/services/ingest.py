@@ -35,6 +35,19 @@ def _derive_rates(rec: dict) -> None:
         rec["yield_pct"] = round(rent / value * 100, 2)
 
 
+def _check_forced_sale(rec: dict) -> None:
+    """A forced sale value is always below the market value; one equal to or above it is a mis-read."""
+    fsv, mv = rec.get("forced_sale_value"), rec.get("capital_value")
+    try:
+        bad = fsv is not None and mv is not None and float(fsv) >= float(mv)
+    except (TypeError, ValueError):
+        bad = False
+    if bad:
+        rec["forced_sale_value"] = None
+        rec.setdefault("warnings", []).append("The forced sale value read was not below the market value, so it "
+                                              "was left blank: check the report.")
+
+
 def _grades_only(rec: dict) -> None:
     """Rating boxes hold a grade (Excellent / Very good, Good, Fair, Poor, Dilapidated), never a sentence."""
     from ..routers.records import RATING_FIELDS
@@ -95,6 +108,7 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         rec.setdefault("category", draft.get("report_type") or "valuation")
         _derive_rates(rec)
         rules.clean_gps_fields(rec, report.raw_text or text or "")
+        _check_forced_sale(rec)
         if rec.get("basis_of_value"):
             rec["basis_of_value"] = rules.normalise_basis(rec["basis_of_value"])
         if rec.get("purpose"):
