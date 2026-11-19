@@ -163,7 +163,11 @@ def basis_analysis(records: list[Record], basis: str, compare: str | None = None
            "by_location": group(lambda r: r.location or r.city),
            "by_district": group(lambda r: r.district),
            "by_property_type": group(lambda r: r.property_type),
-           "trend": {}, "excluded_suspect": len(bad)}
+           "trend": {}, "excluded_suspect": len(bad), "interval": interval}
+    used = [r for r in vals if any(_on_basis(r, b) for b in bases)]
+    dates = sorted(r.record_date for r in used if r.record_date)
+    out["date_range"] = [dates[0].isoformat(), dates[-1].isoformat()] if dates else None
+    out["undated"] = sum(1 for r in used if not r.record_date)
     if len(bases) == 2 and overall[bases[0]] and overall[bases[1]]:
         out["yield_pct"] = _yield(overall, bases)
     for b in bases:
