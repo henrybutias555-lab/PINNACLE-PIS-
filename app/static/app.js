@@ -140,7 +140,11 @@ $("#login-form").addEventListener("submit", async (e) => {
     startApp();
   } catch (err) { $("#login-error").textContent = err.message; }
 });
-$("#logout-btn").addEventListener("click", logout);
+$("#logout-btn").addEventListener("click", () => {
+  // tell the server (so others see "Signed out"), without waiting for it
+  if (state.token) fetch("/api/auth/logout", { method: "POST", keepalive: true, headers: { Authorization: `Bearer ${state.token}` } }).catch(() => {});
+  logout();
+});
 $("#pw-btn").addEventListener("click", () => {
   openModal(`<h3>Change password</h3><form id="pw-form" class="form-grid">
     <label>Current password<input type="password" name="current_password" required></label>
@@ -174,6 +178,8 @@ function checkForUpdate(health) {
 }
 async function pollForUpdate() {
   if (document.visibilityState !== "visible") return;
+  if (state.token) api("/api/auth/heartbeat", { method: "POST" }).catch(() => {});   // "online now"
+  if (state.token && location.hash === "#admin" && !$("#modal").open) loadAdmin().catch(() => {});
   try { checkForUpdate(await (await fetch("/api/health", { cache: "no-store" })).json()); } catch (_) { /* offline */ }
 }
 document.addEventListener("visibilitychange", pollForUpdate);
@@ -1349,10 +1355,30 @@ $("#comp-xlsx").addEventListener("click", () => compExport("xlsx"));
 $("#comp-docx").addEventListener("click", () => compExport("docx"));
 
 /* ---------------- Admin ---------------- */
+/* Online now / active x min ago / last seen ... */
+function ago(iso) {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+function presence(u) {
+  if (u.online) return '<span class="presence"><span class="dot on"></span>Online now</span>';
+  if (!u.last_seen_at) return '<span class="presence muted"><span class="dot"></span>Never signed in</span>';
+  const out = u.signed_out_at && new Date(u.signed_out_at) >= new Date(u.last_seen_at);
+  return `<span class="presence muted" title="${esc(new Date(out ? u.signed_out_at : u.last_seen_at).toLocaleString())}"><span class="dot"></span>${out ? `Signed out ${ago(u.signed_out_at)}` : `Last active ${ago(u.last_seen_at)}`}</span>`;
+}
+
 async function loadAdmin() {
   const [users, log] = await Promise.all([api("/api/users"), api("/api/activity?limit=300")]);
-  $("#users-table").innerHTML = table(["Name", "Email", "Role", "Active", ""], users.map((u) => [esc(u.full_name), esc(u.email),
+  const online = users.filter((u) => u.online);
+  $("#online-now").innerHTML = online.length
+    ? `<span class="dot on"></span><b>${online.length} online now:</b> ${online.map((u) => esc(u.full_name || u.email) + (state.user && u.id === state.user.id ? " (you)" : "")).join(", ")}`
+    : '<span class="dot"></span>Nobody is online right now.';
+  $("#users-table").innerHTML = table(["Name", "Email", "Role", "Status", "Account", ""], users.map((u) => [esc(u.full_name), esc(u.email),
     `<select class="role-sel" data-id="${u.id}">${Object.entries(ROLE_NAMES).map(([k, l]) => `<option value="${k}" ${k === u.role ? "selected" : ""}>${l}</option>`).join("")}</select>`,
+    presence(u),
     u.is_active ? statusPill("confirmed").replace("confirmed", "active") : '<span class="pill bad">disabled</span>',
     `<button class="btn small toggle-active" data-id="${u.id}" data-active="${u.is_active}">${u.is_active ? "Disable" : "Enable"}</button>`]));
   $$(".role-sel").forEach((s) => s.addEventListener("change", async () => {

@@ -20,8 +20,26 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(401, "Incorrect email or password")
     if not user.is_active:
         raise HTTPException(403, "Account is disabled")
+    from ..models import utcnow
+    user.last_seen_at = utcnow()
+    db.commit()
     log_activity(db, user, "login", request=request)
     return TokenOut(access_token=create_token(user), user=UserOut.model_validate(user))
+
+
+@router.post("/auth/heartbeat")
+def heartbeat(_: User = Depends(get_current_user)):
+    """Called every minute by an open PIS page; marks the user as online."""
+    return {"ok": True}
+
+
+@router.post("/auth/logout")
+def logout(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    from ..models import utcnow
+    user.signed_out_at = utcnow()
+    db.commit()
+    log_activity(db, user, "logout", request=request)
+    return {"ok": True}
 
 
 @router.get("/auth/me", response_model=UserOut)

@@ -55,7 +55,22 @@ def get_current_user(
     user = db.get(User, int(payload.get("sub", 0)))
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User inactive or not found")
+    _mark_seen(db, user)
     return user
+
+
+def _mark_seen(db: Session, user: User) -> None:
+    """Remember when the user was last active (at most one write every 30 s)."""
+    from .models import _aware, utcnow
+
+    now = utcnow()
+    seen = _aware(user.last_seen_at)
+    if seen is None or (now - seen).total_seconds() > 30:
+        user.last_seen_at = now
+        try:
+            db.commit()
+        except Exception:      # never block a request over this
+            db.rollback()
 
 
 def require_role(minimum: str):
