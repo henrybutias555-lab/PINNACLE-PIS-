@@ -1741,6 +1741,37 @@ async function loadDiscussions() {
     </button>`).join("") : '<p class="muted small">No discussions yet. Tap <b>💬 Discuss</b> on a paper, or <b>+ New discussion</b> to pick several.</p>';
   $$(".discussion-item", box).forEach((b) => (b.onclick = () => openDiscussion(Number(b.dataset.id))));
 }
+/* Send a discussion message and read the reply as it streams (server-sent events). */
+async function streamMessage(id, text, onText) {
+  const res = await fetch(`/api/discussions/${id}/messages/stream`, {
+    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${state.token}` },
+    body: JSON.stringify({ message: text }),
+  });
+  if (res.status === 401) { logout(); throw new Error("Session expired - please sign in again"); }
+  if (!res.ok || !res.body) {
+    let msg = res.statusText;
+    try { const j = await res.json(); msg = typeof j.detail === "string" ? j.detail : msg; } catch (_) {}
+    throw new Error(msg || "Could not send the message");
+  }
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "", soFar = "", done = null;
+  for (;;) {
+    const { value, done: end } = await reader.read();
+    if (end) break;
+    buf += dec.decode(value, { stream: true });
+    let cut;
+    while ((cut = buf.indexOf("\n\n")) >= 0) {
+      const event = buf.slice(0, cut); buf = buf.slice(cut + 2);
+      const line = event.split("\n").find((l) => l.startsWith("data: "));
+      if (!line) continue;
+      const msg = JSON.parse(line.slice(6));
+      if (msg.type === "chunk") { soFar += msg.text; onText(soFar); }
+      else if (msg.type === "done") done = msg;
+    }
+  }
+  if (!done) throw new Error("The reply was interrupted; please send it again");
+  return done;
+}
 async function discussPaper(paperId) {
   const mine = await api("/api/discussions");
   const existing = mine.find((c) => c.papers.length === 1 && c.papers[0].id === paperId);
@@ -1786,10 +1817,10 @@ async function openDiscussion(id) {
   };
   const bubble = (m) => m.role === "user"
     ? `<div class="msg me"><div class="bubble">${chatText(m.content)}</div><span class="msg-at">${m.at ? new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>`
-    : `<div class="msg ai"><div class="bubble">${m.typing ? '<span class="typing"><i></i><i></i><i></i></span>' : chatText(m.content)}
+    : `<div class="msg ai"><div class="bubble">${m.typing || (m.streaming && !m.content) ? '<span class="typing"><i></i><i></i><i></i></span>' : chatText(m.content) + (m.streaming ? '<span class="cursor">▍</span>' : "")}
         ${(m.quotes || []).map((q) => `<blockquote class="chat-quote" data-paper="${q.paper_id}" data-q="${esc(q.quote.slice(0, 80))}">“${esc(q.quote)}”<span>— ${esc(q.paper)}</span></blockquote>`).join("")}
         ${m.warning ? `<p class="muted small">⚠ ${esc(m.warning)}</p>` : ""}</div>
-        <span class="msg-at">${m.typing ? "PIS Research is typing…" : `PIS Research${m.method === "search" ? " (search only)" : ""}${m.at ? " · " + new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`}</span></div>`;
+        <span class="msg-at">${m.typing || m.streaming ? "PIS Research is typing…" : `PIS Research${m.method === "search" ? " (search only)" : ""}${m.at ? " · " + new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}`}</span></div>`;
   const render = (extra = []) => {
     const msgs = [...(chat.messages || []), ...extra];
     log.innerHTML = msgs.length ? msgs.map(bubble).join("")
@@ -1806,7 +1837,11 @@ async function openDiscussion(id) {
     render([mine, { role: "assistant", typing: true }]);
     input.disabled = true;
     try {
-      const res = await api(`/api/discussions/${id}/messages`, { method: "POST", body: { message: text } });
+      const res = await streamMessage(id, text, (soFar) => {
+        // show the reply as it is written (the quotes list, after "QUOTES:", is shown once it is checked)
+        const visible = soFar.split(/^\s*\**quotes:?\**\s*$/im)[0];
+        render([mine, { role: "assistant", content: visible, streaming: true }]);
+      });
       chat.messages = [...(chat.messages || []), res.message, res.reply];
       if (res.title) { chat.title = res.title; $(".chat-title").textContent = res.title; }
       render();

@@ -351,3 +351,7 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 .doc-html .slide { border-bottom: 1px solid #dde3e8; padding-bottom: .5rem; margin-bottom: .5rem; }
 .doc-pre { white-space: pre-wrap; background: #fff; color: #1c2430; padding: 1rem; border-radius: 6px; }
 .doc-img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+
+.cursor { display: inline-block; margin-left: .1rem; animation: pis-blink 1s steps(2) infinite; color: var(--muted); }
+@keyframes pis-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
