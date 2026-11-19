@@ -93,6 +93,22 @@ def _fix_gps_values() -> int:
     return changed
 
 
+def _fix_purpose_values() -> int:
+    """Saved purposes written as the report's sentence -> one short label ('Sale', 'Mortgage' ...)."""
+    from .models import Record
+    from .services.reader import standard_purpose
+
+    changed = 0
+    with SessionLocal() as db:
+        for rec in db.scalars(select(Record).where(Record.purpose.is_not(None))):
+            clean = standard_purpose(rec.purpose)
+            if clean and clean != rec.purpose:
+                rec.purpose = clean
+                changed += 1
+        db.commit()
+    return changed
+
+
 def _safe_self_check(module) -> None:
     try:
         module.self_check()
@@ -114,7 +130,7 @@ def init_db() -> None:
             log.info("Database upgraded: added column %s", column)
         for column in widen_columns(engine):
             log.info("Database upgraded: widened column %s", column)
-        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values()
+        fixed = _fix_mmda_values() + _fix_basis_values() + _fix_gps_values() + _fix_purpose_values()
         if fixed:
             log.warning("Corrected %d MMDA value(s) that were not assemblies", fixed)
         with SessionLocal() as db:

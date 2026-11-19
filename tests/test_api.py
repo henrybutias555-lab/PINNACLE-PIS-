@@ -597,7 +597,7 @@ Special assumptions: Building completed as per approved plans
 Valuer: Kofi Mensah, MGhIS, Pinnacle Estate Surveyors"""
     r = rules.extract(text)["records"][0]
     assert r["gps_address"] == "GA-183-8164"
-    assert r["client"] == "Example Bank Ltd" and r["purpose"] == "Mortgage / loan security"
+    assert r["client"] == "Example Bank Ltd" and r["purpose"] == "Mortgage"
     assert r["property_valued"].startswith("A 5-bedroom mansion")
     assert r["basis_of_value"] == "Market Value"  # one basis; the forced sale value is a separate figure
     assert "Special: Building completed" in r["assumptions"]
@@ -894,7 +894,7 @@ def test_comparables_from_word_table_and_excel(client, admin):
                       files=[("files", ("comps.docx", _comparables_docx(), "application/octet-stream"))]).json()[0]
     rec = rep["draft"]["records"][0]
     assert rec["basis_of_value"] == "Market Value"          # not "Market Value VALUATION OPINION"
-    assert rec["purpose"] == "Mortgage / loan security" and rec["capital_value"] == 2300000
+    assert rec["purpose"] == "Mortgage" and rec["capital_value"] == 2300000
     comps = rec["comparables"]
     assert [c["address"] for c in comps] == ["Plot 5, East Legon Hills", "Santeo Estate", "Oyarifa"]
     assert comps[0] == {"address": "Plot 5, East Legon Hills", "property_type": "4-bedroom house",
@@ -911,11 +911,11 @@ def test_comparables_from_word_table_and_excel(client, admin):
     ev = list(wb["Evidence"].iter_rows(min_row=4, values_only=True))
     assert "Purpose of valuation" in ev[0] and "Basis of value" in ev[0]
     row = dict(zip(ev[0], ev[1]))
-    assert (row["Purpose of valuation"], row["Basis of value"]) == ("Mortgage / loan security", "Market Value")
+    assert (row["Purpose of valuation"], row["Basis of value"]) == ("Mortgage", "Market Value")
     cs = list(wb["Comparables"].iter_rows(min_row=4, values_only=True))
     head, body = cs[0], [dict(zip(cs[0], r)) for r in cs[1:]]
     assert len(body) == 3
-    assert body[0]["Purpose of valuation"] == "Mortgage / loan security" and body[0]["Basis of value"] == "Market Value"
+    assert body[0]["Purpose of valuation"] == "Mortgage" and body[0]["Basis of value"] == "Market Value"
     assert body[0]["Comparable address / location"] == "Plot 5, East Legon Hills" and body[0]["Price"] == 2100000
 
 
@@ -1105,7 +1105,7 @@ def test_reads_a_narrative_report_without_ai(tmp_path):
     rec = rules.extract(text)["records"][0]
     rec.update({k: v for k, (v, _) in gaps.infer(rec, text).items()})
     expect = {
-        "purpose": "Mortgage / loan security", "client": "GCB Bank PLC", "basis_of_value": "Market Value",
+        "purpose": "Mortgage", "client": "GCB Bank PLC", "basis_of_value": "Market Value",
         "inspection_date": "2023-07-19", "record_date": "2023-08-01", "location": "Santeo",
         "district": "La Nkwantanang-Madina Municipal", "city": "Accra", "region": "Greater Accra",
         "gps_address": "GA-183-8164", "gps_coordinates": "5.639611, -0.167528", "land_size": "0.10 acre (404.69 sq m)",
@@ -1134,7 +1134,7 @@ def test_reads_a_differently_written_report(tmp_path):
     text = extract_text(_build_report("make_kumasi_report", tmp_path), "docx")
     rec = rules.extract(text)["records"][0]
     rec.update({k: v for k, (v, _) in gaps.infer(rec, text).items()})
-    expect = {"client": "Ecobank Ghana Limited", "purpose": "Mortgage / loan security", "record_date": "2024-03-15",
+    expect = {"client": "Ecobank Ghana Limited", "purpose": "Mortgage", "record_date": "2024-03-15",
               "gps_address": "AK-039-5028", "district": "Kumasi Metropolitan", "region": "Ashanti", "city": "Kumasi",
               "tenure": "Leasehold", "unexpired_term": "31 years (calculated: 50-year term from 2005)",
               "land_size": "0.35 acres", "owner": "Adom Properties Limited", "building_type": "three-storey office block",
@@ -1480,3 +1480,14 @@ def test_report_grade_wins_over_reading(client, admin, monkeypatch):
     rec = rep["draft"]["records"][0]
     assert rec["location_rating"] == "Very good" and rec["state_of_repair"] == "Very good"
     assert rec["accessibility_rating"] == "Good" and "location_rating" in rec["autofilled"]
+
+
+def test_purpose_is_a_short_label(client, admin):
+    from app.services.reader import standard_purpose
+    assert standard_purpose("To assess the Capital value of the property") == "Capital value assessment"
+    assert standard_purpose("The valuation is required for sale purposes.") == "Sale"
+    assert standard_purpose("for loan security with GCB Bank") == "Mortgage"
+    r = client.post("/api/records", headers=admin, json={
+        "category": "valuation", "location": "Purposeville",
+        "purpose": "To determine the open market value of the property for mortgage purposes"}).json()
+    assert r["purpose"] == "Mortgage"
