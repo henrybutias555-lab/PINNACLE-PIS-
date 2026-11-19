@@ -216,6 +216,27 @@ def delete_doc(doc_id: int, request: Request, user: User = Depends(require_role(
     log_activity(db, user, "research_deleted", title[:255], request=request)
 
 
+@router.post("/{doc_id}/ask")
+def ask_doc(doc_id: int, body: dict, request: Request, user: User = Depends(get_current_user),
+            db: Session = Depends(get_db)):
+    """Ask a question about this document; answered from its own text only."""
+    from ..services import research_qa
+
+    question = str(body.get("question") or "").strip()
+    if len(question) < 3:
+        raise HTTPException(422, "Type a question")
+    if len(question) > 1000:
+        raise HTTPException(422, "Keep the question under 1,000 characters")
+    doc = db.get(ResearchDoc, doc_id)
+    if doc is None:
+        raise HTTPException(404, "Document not found")
+    if not (doc.text or "").strip():
+        raise HTTPException(422, "This file has no readable text to answer from. Download it to view.")
+    result = research_qa.ask(doc.title, doc.text, question)
+    log_activity(db, user, "research_question", doc.title[:255], question[:500], request)
+    return {"question": question, **result}
+
+
 @router.get("/{doc_id}/file")
 def download_doc(doc_id: int, request: Request, inline: bool = False, user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):
