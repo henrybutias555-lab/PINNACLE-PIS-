@@ -1977,3 +1977,50 @@ def test_construction_cost_trends_by_mmda(client, admin):
     ext = client.get("/api/analytics/cost-mmda?location=Costtest&districts=Adentan Municipal&metric=external&interval=year",
                      headers=admin).json()
     assert [(p["period"], p["mean"]) for p in ext["series"][0]["points"]] == [("2024", 400)]
+
+
+def test_research_authors_and_tags(client, admin, tmp_path, monkeypatch):
+    import json as _json
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate
+
+    st = getSampleStyleSheet()
+    pdf = tmp_path / "rg.pdf"
+    doc = SimpleDocTemplate(str(pdf), pagesize=A4)              # no author in the PDF's own details
+    doc.build([
+        Paragraph("See discussions, stats, and author profiles for this publication at: "
+                  "https://www.researchgate.net/publication/235306182", st["BodyText"]),
+        Paragraph("Dual rate taxed valuation: A more rational approach", st["Heading2"]),
+        Paragraph("Article in Journal of Property Investment and Finance · March 2012", st["BodyText"]),
+        Paragraph("2 authors, including:", st["BodyText"]),
+        Paragraph("Nelson Chan", st["BodyText"]), Paragraph("Western Sydney University", st["BodyText"]),
+        Paragraph("21 PUBLICATIONS 160 CITATIONS", st["BodyText"]), Paragraph("SEE PROFILE", st["BodyText"]),
+        PageBreak(),
+        Paragraph("Dual rate taxed valuation: A more rational approach", st["Title"]),
+        Paragraph("Authors: Nelson Chan and Norman Hacker", st["BodyText"]),
+        Paragraph("Abstract", st["Heading2"]),
+        Paragraph("This paper examines the dual rate method of valuing leasehold interests and the sinking fund.", st["BodyText"]),
+        Paragraph("Keywords: Dual rate, Sinking fund, Leasehold valuation", st["BodyText"]),
+        Paragraph("Introduction", st["Heading2"]),
+        Paragraph("Mackmin (2008) provides a detailed review of the dual rate valuation method.", st["BodyText"]),
+    ])
+    d = client.post("/api/research", headers=admin, files={"file": ("rg.pdf", pdf.read_bytes(), "application/pdf")}).json()
+    assert d["author"] == "Nelson Chan, Norman Hacker · Journal of Property Investment and Finance"
+    assert d["tags"] == ["dual rate", "sinking fund", "leasehold valuation"] and d["year"] == "2012"
+    # tapping a tag searches by it
+    assert any(x["id"] == d["id"] for x in client.get("/api/research?q=sinking fund", headers=admin).json()["items"])
+
+    # a paper without an author line or keywords: the AI fills them (one quick attempt)
+    from app.config import Settings
+    from app.services import gemini, llm
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "provider", lambda: "gemini")
+    monkeypatch.setattr(gemini, "_call", lambda *a, **k: _json.dumps({
+        "title": "Land markets in Ghana", "authors": ["Ama Owusu", "Kofi Asante"], "journal_or_publisher": "Land Use Policy",
+        "year": "2019", "keywords": ["Land tenure", "Customary land"]}))
+    txt = b"Land markets in Ghana\nThis study looks at how customary land is sold around Accra and Kumasi.\n"
+    e = client.post("/api/research", headers=admin, files={"file": ("land.txt", txt, "text/plain")}).json()
+    assert e["author"] == "Ama Owusu, Kofi Asante · Land Use Policy" and e["year"] == "2019"
+    assert e["tags"] == ["land tenure", "customary land"]

@@ -1761,7 +1761,7 @@ async function loadResearch() {
       <p class="muted small">${[d.author, d.year].filter(Boolean).map(esc).join(" · ")}${d.author || d.year ? " · " : ""}${esc(d.file_type.toUpperCase())} · ${sizeText(d.file_size)}${d.words ? ` · ${fmt(d.words)} words` : ""} · added ${esc(new Date(d.created_at).toLocaleDateString())}${d.uploaded_by ? ` by ${esc(d.uploaded_by)}` : ""}</p>
       ${d.summary ? `<p>${highlight(d.summary, f.q)}</p>` : ""}
       ${d.snippet ? `<p class="snippet small">…${highlight(d.snippet, f.q)}</p>` : ""}
-      ${(d.tags || []).length ? `<p>${d.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join(" ")}</p>` : ""}
+      ${(d.tags || []).length ? `<p>${d.tags.map((t) => `<button type="button" class="tag tag-btn" data-tag="${esc(t)}" title="Show documents tagged “${esc(t)}”">${esc(t)}</button>`).join(" ")}</p>` : ""}
       <div class="row gap">${d.has_text ? '<button class="btn small primary rs-discuss">💬 Discuss</button><button class="btn small rs-ask">Quick question</button><button class="btn small rs-read">Read</button>' : ""}
         <button class="btn small rs-dl">Download</button>
         ${can("junior") ? '<button class="btn small rs-edit">Edit details</button><button class="btn small rs-reread" title="Read the file again with the latest reader">↻ Re-read</button>' : ""}
@@ -1773,6 +1773,9 @@ async function loadResearch() {
     $(".rs-ask", card)?.addEventListener("click", () => readResearch(id, f.q, true));
     $(".rs-discuss", card)?.addEventListener("click", () => discussPaper(Number(id)).catch((e) => toast(e.message, true)));
     $(".rs-dl", card).onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
+    $$(".tag-btn", card).forEach((b) => (b.onclick = () => {
+      $("#research-search [name=q]").value = b.dataset.tag; loadResearch().catch((e) => toast(e.message, true));
+    }));
     $(".rs-edit", card)?.addEventListener("click", () => editResearch(d));
     $(".rs-reread", card)?.addEventListener("click", async () => {
       try { await api(`/api/research/${id}/reread`, { method: "POST" }); toast("Read again"); loadResearch(); } catch (e) { toast(e.message, true); }
