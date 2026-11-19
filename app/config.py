@@ -78,7 +78,7 @@ class Settings:
     admin_password: str = field(default_factory=lambda: os.getenv("PIS_ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD))
     token_minutes: int = field(default_factory=lambda: int(os.getenv("PIS_TOKEN_MINUTES", "480")))
     claude_model: str = field(default_factory=lambda: os.getenv("PIS_CLAUDE_MODEL", "claude-opus-5-5"))
-    gemini_model: str = field(default_factory=lambda: os.getenv("PIS_GEMINI_MODEL", "gemini-2.5-flash"))
+    gemini_model: str = field(default_factory=lambda: os.getenv("PIS_GEMINI_MODEL", "gemini-3.8-flash"))
     # Vercel functions reject request bodies over ~4.5 MB.
     max_upload_mb: float = field(default_factory=lambda: float(os.getenv("PIS_MAX_UPLOAD_MB", "4.4" if ON_VERCEL else "40")))
     # Background work is unreliable on serverless, so extract during the upload request there.

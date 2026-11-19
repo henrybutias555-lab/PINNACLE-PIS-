@@ -59,19 +59,53 @@ def api_key() -> str | None:
 def _client():
     from google import genai
 
-    return genai.Client(api_key=api_key())
+    from google.genai import types
+
+    # Never let a slow answer hold a surveyor up: after this, the built-in reader's result is used.
+    timeout_s = int(os.getenv("PIS_GEMINI_TIMEOUT", "120"))
+    return genai.Client(api_key=api_key(), http_options=types.HttpOptions(timeout=timeout_s * 1000))
+
+
+_THINKING_OK: dict[str, bool] = {}
+
+
+def _thinking(types):
+    """Short thinking: reading figures out of a report doesn't need long deliberation, and the
+    newer models think for minutes by default."""
+    model = settings.gemini_model
+    if _THINKING_OK.get(model) is False:
+        return None
+    if re.match(r"gemini-([3-9]|\d{2})", model):
+        return types.ThinkingConfig(thinking_level="LOW")
+    if model.startswith("gemini-2.5"):
+        return types.ThinkingConfig(thinking_budget=1024)
+    return None
 
 
 def _call(system: str, contents: list, *, max_tokens: int, json_schema: dict | None = None) -> str:
     from google.genai import errors, types
 
-    config = types.GenerateContentConfig(
-        system_instruction=system,
-        max_output_tokens=max_tokens,
-        **({"response_mime_type": "application/json", "response_json_schema": json_schema} if json_schema else {}),
-    )
+    def config(with_thinking: bool):
+        thinking = _thinking(types) if with_thinking else None
+        return types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+            **({"thinking_config": thinking} if thinking else {}),
+            **({"response_mime_type": "application/json", "response_json_schema": json_schema} if json_schema else {}),
+        )
+
     try:
-        response = _client().models.generate_content(model=settings.gemini_model, contents=contents, config=config)
+        try:
+            response = _client().models.generate_content(model=settings.gemini_model, contents=contents,
+                                                         config=config(True))
+        except errors.ClientError as exc:
+            # a model that doesn't accept the thinking setting: remember, and ask again without it
+            if getattr(exc, "code", None) == 400 and "thinking" in str(exc).lower():
+                _THINKING_OK[settings.gemini_model] = False
+                response = _client().models.generate_content(model=settings.gemini_model, contents=contents,
+                                                             config=config(False))
+            else:
+                raise
     except errors.ClientError as exc:
         code = getattr(exc, "code", None)
         if code in (401, 403):
@@ -83,7 +117,9 @@ def _call(system: str, contents: list, *, max_tokens: int, json_schema: dict | N
         raise AIError(f"Gemini API error ({code}): {getattr(exc, 'message', exc)}") from exc
     except errors.ServerError as exc:
         raise AIError(f"Gemini service error ({getattr(exc, 'code', '')}); try again shortly") from exc
-    except Exception as exc:  # network problems and anything unexpected
+    except Exception as exc:  # network problems, time-outs and anything unexpected
+        if "timeout" in type(exc).__name__.lower() or "timed out" in str(exc).lower():
+            raise AIError("Gemini took too long to answer") from exc
         raise AIError(f"Could not reach the Gemini API: {type(exc).__name__}") from exc
 
     candidate = (response.candidates or [None])[0]
@@ -171,15 +207,18 @@ def self_check() -> dict:
         return STATUS
 
     def attempt() -> tuple[bool, str]:
+        import time as _t
         from pathlib import Path as _P
+        started = _t.monotonic()
         try:
             draft = extract_report(_P("sample.txt"), "txt", SAMPLE_REPORT, "GHS")
         except AIError as exc:
-            return False, str(exc)
+            return False, f"{exc} (after {_t.monotonic() - started:.0f}s)"
+        took = f"in {_t.monotonic() - started:.0f}s"
         rec = (draft.get("records") or [{}])[0]
         got = rec.get("capital_value")
         if got and abs(float(got) - 3_000_000) < 1:
-            return True, (f"read the sample report correctly (market value {got:,.0f}, "
+            return True, (f"read the sample report correctly {took} (market value {got:,.0f}, "
                           f"MMDA {rec.get('district') or '-'}, tenure {rec.get('tenure') or '-'})")
         return False, f"answered, but the sample market value came back as {got!r}"
 
