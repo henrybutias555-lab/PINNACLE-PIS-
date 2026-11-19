@@ -38,7 +38,7 @@ def breakdown(
     db: Session = Depends(get_db),
 ):
     fields = [g.strip() for g in group_by.split(",") if g.strip()]
-    allowed = {"location", "district", "city", "property_type", "category", "purpose", "region"}
+    allowed = {"location", "district", "city", "property_type", "category", "purpose", "region", "basis_of_value"}
     if not fields or set(fields) - allowed:
         raise HTTPException(422, f"group_by must use: {', '.join(sorted(allowed))}")
     records = _records(db, f)
@@ -76,7 +76,7 @@ def cross(
 def commentary(body: CommentaryIn, request: Request, user: User = Depends(get_current_user),
                db: Session = Depends(get_db)):
     f = RecordFilters(category=body.category, location=body.location, district=body.district, city=body.city,
-                      property_type=body.property_type, purpose=body.purpose,
+                      property_type=body.property_type, purpose=body.purpose, basis_of_value=body.basis_of_value,
                       date_from=body.date_from, date_to=body.date_to)
     records = _records(db, f)
     stats = analytics.summary(records)
@@ -175,7 +175,7 @@ def evidence_export(
                     headers={"Content-Disposition": f'attachment; filename="{name}.docx"'})
 
 
-ANALYSIS_GROUPS = {"location", "district", "city", "property_type", "category", "purpose", "region"}
+ANALYSIS_GROUPS = {"location", "district", "city", "property_type", "category", "purpose", "region", "basis_of_value"}
 ANALYSIS_TRENDS = ["value_per_sqm", "capital_value", "annual_rent", "yield_pct", "cost_per_sqm", "avg_price",
                    "avg_monthly_rent"]
 
@@ -188,7 +188,7 @@ def analysis_export(body: AnalysisExportIn, request: Request, user: User = Depen
     if not groups or set(groups) - ANALYSIS_GROUPS:
         raise HTTPException(422, f"group_by must use: {', '.join(sorted(ANALYSIS_GROUPS))}")
     f = RecordFilters(category=body.category, location=body.location, district=body.district, city=body.city,
-                      property_type=body.property_type, purpose=body.purpose,
+                      property_type=body.property_type, purpose=body.purpose, basis_of_value=body.basis_of_value,
                       date_from=body.date_from, date_to=body.date_to)
     records = _records(db, f)
     trend_data = {}

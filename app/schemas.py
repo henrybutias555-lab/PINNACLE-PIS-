@@ -190,6 +190,7 @@ class ConfirmIn(BaseModel):
 
 
 class CommentaryIn(BaseModel):
+    basis_of_value: str | None = None
     location: str | None = None
     district: str | None = None
     city: str | None = None
