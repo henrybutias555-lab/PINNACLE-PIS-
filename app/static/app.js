@@ -1484,9 +1484,24 @@ $("#group-by").addEventListener("change", loadBreakdown);
 const intelFilters = () => formData($("#intel-filters"));
 
 /* Land value trends by MMDA */
+const MMDA_MEASURES = {
+  land: [["per_acre", "Average land value per acre"], ["per_sqm", "Average land value per m²"], ["total", "Average land value (per valuation)"]],
+  cost: [["main", "Construction cost per m²: main building"], ["external", "Construction cost per m²: external works"]],
+};
+const MMDA_INTRO = {
+  land: "Average land values over time in each Metropolitan, Municipal and District Assembly: from land valuations and the land values stated in other reports (e.g. the cost approach).",
+  cost: "Average construction cost per m² over time in each MMDA: from construction cost reports and the rates adopted in valuation reports (main building = the floors; external works = tap area, compound, walls …).",
+};
+function setLandMeasures() {
+  const topic = $("#land-topic").value;
+  $("#land-metric").innerHTML = MMDA_MEASURES[topic].map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  $("#land-intro").textContent = MMDA_INTRO[topic];
+}
 function setupLandCard() {
   const main = $("#land-mmda");
   if (!main || main.options.length) return;
+  setLandMeasures();
+  $("#land-topic").addEventListener("change", () => { setLandMeasures(); loadLand().catch((e) => toast(e.message, true)); });
   main.innerHTML = mmdaOptions("", "All MMDAs");
   $("#land-cmp1").innerHTML = mmdaOptions("", "— none —");
   $("#land-cmp2").innerHTML = mmdaOptions("", "— none —");
@@ -1498,15 +1513,17 @@ async function loadLand() {
   const f = intelFilters(); delete f.district;
   const picks = [$("#land-mmda").value, $("#land-cmp1").value, $("#land-cmp2").value];
   const districts = picks[0] ? [...new Set(picks.filter(Boolean))] : ["", ...new Set(picks.slice(1).filter(Boolean))];
-  const metric = $("#land-metric").value, interval = $("#land-interval").value;
-  const d = await api("/api/analytics/land?" + qs({ ...f, districts: districts.join(","), metric, interval }));
+  const topic = $("#land-topic").value, metric = $("#land-metric").value, interval = $("#land-interval").value;
+  const path = topic === "cost" ? "/api/analytics/cost-mmda?" : "/api/analytics/land?";
+  const d = await api(path + qs({ ...f, districts: districts.join(","), metric, interval }));
   const cur = d.currency || (state.health && state.health.default_currency) || "GHS";
-  const unit = { per_acre: " per acre", per_sqm: " per m²", total: "" }[metric];
+  const unit = { per_acre: " per acre", per_sqm: " per m²", total: "", main: " per m²", external: " per m²" }[metric];
+  const what = topic === "cost" ? "record" : "valuation";
   const shortName = (n) => n.replace(/ (Metropolitan|Municipal|District)$/, "");
   $("#land-summary").innerHTML = d.series.map((s) => {
     const last = s.points[s.points.length - 1];
     return kpi(shortName(s.district), last ? `${cur} ${fmt(last.mean)}${unit}` : "—",
-      last ? `${last.period} · ${s.valuations} valuation${s.valuations === 1 ? "" : "s"}${s.overall_change_pct != null ? ` · ${s.overall_change_pct > 0 ? "▲" : "▼"} ${fmt(Math.abs(s.overall_change_pct), 1)}% since ${s.points[0].period}` : ""}` : "no land values yet");
+      last ? `${last.period} · ${s.valuations} ${what}${s.valuations === 1 ? "" : "s"}${s.overall_change_pct != null ? ` · ${s.overall_change_pct > 0 ? "▲" : "▼"} ${fmt(Math.abs(s.overall_change_pct), 1)}% since ${s.points[0].period}` : ""}` : topic === "cost" ? "no construction rates yet" : "no land values yet");
   }).join("");
   const periods = [...new Set(d.series.flatMap((s) => s.points.map((p) => p.period)))].sort();
   if (periods.length) {
@@ -1523,12 +1540,14 @@ async function loadLand() {
     { v: fmt(p.median), num: true }, { v: p.count, num: true },
     { v: p.change_pct == null ? "—" : `${p.change_pct > 0 ? "▲" : p.change_pct < 0 ? "▼" : ""} ${fmt(Math.abs(p.change_pct), 1)}%`, num: true }])));
   $("#land-table").innerHTML = rows.length
-    ? table(["MMDA", "Period", { t: `Average (${cur}${unit})`, num: true }, { t: "Median", num: true }, { t: "Valuations", num: true }, { t: "Change", num: true }], rows)
-    : `<p class="muted">No land values ${picks[0] ? `for ${esc(picks[0])}` : "yet"}${metric !== "total" ? " with a land size" : ""} in the filtered data.</p>`;
+    ? table(["MMDA", "Period", { t: `Average (${cur}${unit})`, num: true }, { t: "Median", num: true }, { t: topic === "cost" ? "Records" : "Valuations", num: true }, { t: "Change", num: true }], rows)
+    : topic === "cost"
+      ? `<p class="muted">No ${metric === "external" ? "external works" : "construction"} rates ${picks[0] ? `for ${esc(picks[0])}` : "yet"} in the filtered data.</p>`
+      : `<p class="muted">No land values ${picks[0] ? `for ${esc(picks[0])}` : "yet"}${metric !== "total" ? " with a land size" : ""} in the filtered data.</p>`;
   const notes = [];
   if (d.no_area) notes.push(`${d.no_area} land value${d.no_area === 1 ? "" : "s"} left out because the land size isn't recorded (choose “per valuation” to include them)`);
   if (d.undated) notes.push(`${d.undated} without a valuation date`);
-  notes.push(`plots are counted as 100 × 70 ft (${fmt(d.plot_sqm)} m²) when the size is given in plots`);
+  if (topic === "land") notes.push(`plots are counted as 100 × 70 ft (${fmt(d.plot_sqm)} m²) when the size is given in plots`);
   $("#land-note").textContent = notes.join(" · ");
 }
 

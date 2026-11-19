@@ -64,6 +64,26 @@ def land_trends(
     return data
 
 
+@router.get("/analytics/cost-mmda")
+def cost_trends_by_mmda(
+    f: RecordFilters = Depends(filters_dep),
+    districts: str = Query("", description="Comma list of MMDAs; empty = all MMDAs together"),
+    metric: str = Query("main", pattern="^(main|external)$"),
+    interval: str = Query("quarter", pattern="^(month|quarter|year)$"),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Average construction cost per m² over time by MMDA: main building or external works."""
+    from ..services.land import cost_trend
+
+    wanted = [d.strip() for d in districts.split(",") if d.strip()][:4]
+    f.district = None
+    f.category = None          # cost reports and valuation reports both carry construction rates
+    data = cost_trend(_records(db, f), wanted, metric, interval)
+    data["scope"] = f.describe()
+    return data
+
+
 @router.get("/analytics/breakdown")
 def breakdown(
     f: RecordFilters = Depends(filters_dep),

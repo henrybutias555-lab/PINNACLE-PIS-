@@ -124,3 +124,38 @@ def land_trend(records, districts: list[str], metric: str = "per_acre", interval
         out["series"].append({"district": district or "All MMDAs", "points": points, "valuations": count,
                               "overall_change_pct": round((last - first) / first * 100, 1) if first and len(points) > 1 else None})
     return out
+
+
+def cost_trend(records, districts: list[str], metric: str = "main", interval: str = "quarter") -> dict:
+    """Average construction cost per m² over time for each MMDA ('' = all MMDAs together): the main building
+    (cost reports and the rates adopted in valuation reports) or external works."""
+    from .analytics import dominant_currency
+
+    field = "external_works_rate" if metric == "external" else "cost_per_sqm"
+    rows = [r for r in records if getattr(r, field, None)]
+    currency = dominant_currency(rows)
+    rows = [r for r in rows if (r.currency or currency) == currency]
+    out = {"metric": metric, "interval": interval, "currency": currency, "series": [], "undated": 0, "no_area": 0}
+    key = lambda name: re.sub(r"[^a-z0-9]+", "", (name or "").lower())  # noqa: E731
+    for district in districts or [""]:
+        buckets: dict[str, list[float]] = defaultdict(list)
+        count = 0
+        for r in rows:
+            if district and key(r.district) != key(district):
+                continue
+            if not r.record_date:
+                out["undated"] += 1
+                continue
+            buckets[_period(r.record_date, interval)].append(float(getattr(r, field)))
+            count += 1
+        points, prev = [], None
+        for period in sorted(buckets):
+            v = buckets[period]
+            mean = round(statistics.fmean(v), 2)
+            points.append({"period": period, "mean": mean, "median": round(statistics.median(v), 2),
+                           "count": len(v), "change_pct": round((mean - prev) / prev * 100, 1) if prev else None})
+            prev = mean
+        first, last = (points[0]["mean"], points[-1]["mean"]) if points else (None, None)
+        out["series"].append({"district": district or "All MMDAs", "points": points, "valuations": count,
+                              "overall_change_pct": round((last - first) / first * 100, 1) if first and len(points) > 1 else None})
+    return out

@@ -1953,3 +1953,27 @@ def test_land_value_trends_by_mmda(client, admin):
         b"COST APPROACH\nAdd: Land value GH\xc2\xa2 450,000\n"), "text/plain"))]).json()[0]
     rec = rep["draft"]["records"][0]
     assert rec["land_value"] == 450_000 and rec["land_area_sqm"] == round(0.25 * 4046.8564, 4)
+
+
+def test_construction_cost_trends_by_mmda(client, admin):
+    rows = [
+        # rates adopted in valuation reports (main building 7,000 then 8,000; compound 400)
+        {"category": "valuation", "district": "Adentan Municipal", "record_date": "2024-03-01", "cost_items": [
+            {"item": "Ground floor", "area_sqm": 100, "rate": 7000}, {"item": "Compound", "area_sqm": 200, "rate": 400}]},
+        {"category": "valuation", "district": "Adentan Municipal", "record_date": "2025-03-01", "cost_items": [
+            {"item": "Ground floor", "area_sqm": 100, "rate": 8000}]},
+        # a construction cost report in the same MMDA
+        {"category": "cost", "district": "Adentan Municipal", "record_date": "2025-06-01", "total_cost": 1_800_000, "size_sqm": 200},
+        {"category": "cost", "district": "Tema Metropolitan", "record_date": "2025-06-01", "total_cost": 1_000_000, "size_sqm": 100},
+    ]
+    for row in rows:
+        assert client.post("/api/records", headers=admin, json={"location": "Costtest", **row}).status_code == 201
+    d = client.get("/api/analytics/cost-mmda?location=Costtest&districts=Adentan Municipal,Tema Metropolitan&metric=main"
+                   "&interval=year", headers=admin).json()
+    adentan, tema = d["series"]
+    assert [(p["period"], p["mean"]) for p in adentan["points"]] == [("2024", 7000), ("2025", 8500)]
+    assert adentan["overall_change_pct"] == round((8500 - 7000) / 7000 * 100, 1)
+    assert tema["points"][0]["mean"] == 10000
+    ext = client.get("/api/analytics/cost-mmda?location=Costtest&districts=Adentan Municipal&metric=external&interval=year",
+                     headers=admin).json()
+    assert [(p["period"], p["mean"]) for p in ext["series"][0]["points"]] == [("2024", 400)]
