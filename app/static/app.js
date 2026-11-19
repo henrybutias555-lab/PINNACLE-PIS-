@@ -72,7 +72,30 @@ function toast(msg, isErr = false) {
 }
 
 /* ---------------- API ---------------- */
+/* Loading state: the button the user just tapped shows a spinner and is disabled while its
+   requests to the server run (so nothing looks "dead" and nothing is sent twice). */
+let tapped = null, tappedAt = 0;
+const noteTap = (b) => { if (b && b.tagName === "BUTTON") { tapped = b; tappedAt = Date.now(); } };
+document.addEventListener("click", (e) => noteTap(e.target.closest && e.target.closest("button")), true);
+document.addEventListener("submit", (e) => noteTap(e.submitter || e.target.querySelector('button[type=submit], button:not([type])')), true);
+function busyStart(btn) {
+  const n = Number(btn.dataset.busy || 0) + 1;
+  btn.dataset.busy = n;
+  if (n === 1) { btn.classList.add("busy"); btn.setAttribute("aria-busy", "true"); btn.dataset.wasDisabled = btn.disabled ? "1" : ""; btn.disabled = true; }
+}
+function busyEnd(btn) {
+  const n = Math.max(0, Number(btn.dataset.busy || 1) - 1);
+  btn.dataset.busy = n;
+  if (n === 0) { btn.classList.remove("busy"); btn.removeAttribute("aria-busy"); if (!btn.dataset.wasDisabled) btn.disabled = false; }
+}
+
 async function api(path, opts = {}) {
+  const btn = !opts.quiet && tapped && Date.now() - tappedAt < 600 && document.contains(tapped) ? tapped : null;
+  if (btn) busyStart(btn);
+  try { return await apiCall(path, opts); } finally { if (btn) busyEnd(btn); }
+}
+
+async function apiCall(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (state.token) headers.Authorization = `Bearer ${state.token}`;
   let body = opts.body;
@@ -133,17 +156,23 @@ function logout() {
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("#login-error").textContent = "";
+  const btn = $("#login-form button[type=submit]"), hint = $("#login-wait");
+  btn.textContent = "Signing in…";
+  // The free server sleeps when unused; the first request then takes up to a minute.
+  const slow = setTimeout(() => { hint.hidden = false; }, 4000);
   try {
     const d = await api("/api/auth/login", { method: "POST", body: formData(e.target) });
     saveSession(d.access_token, d.user);
     e.target.reset();
     startApp();
     shareSignInLocation();
-  } catch (err) { $("#login-error").textContent = err.message; }
+  } catch (err) {
+    $("#login-error").textContent = err.message === "Failed to fetch" ? "Cannot reach PIS. Check your internet connection and try again." : err.message;
+  } finally { clearTimeout(slow); hint.hidden = true; btn.textContent = "Sign in"; }
 });
 /* Device location at sign-in. The browser itself asks the user; nothing is sent unless they allow it. */
 function shareSignInLocation() {
-  const send = (body) => api("/api/auth/location", { method: "POST", body }).catch(() => {});
+  const send = (body) => api("/api/auth/location", { method: "POST", body, quiet: true }).catch(() => {});
   if (!navigator.geolocation) { send({ declined: true, reason: "not supported by this browser" }); return; }
   navigator.geolocation.getCurrentPosition(
     (pos) => send({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
@@ -196,7 +225,7 @@ function checkForUpdate(health) {
 }
 async function pollForUpdate() {
   if (document.visibilityState !== "visible") return;
-  if (state.token) api("/api/auth/heartbeat", { method: "POST" }).catch(() => {});   // "online now"
+  if (state.token) api("/api/auth/heartbeat", { method: "POST", quiet: true }).catch(() => {});   // "online now"
   if (state.token && location.hash === "#admin" && !$("#modal").open) loadAdmin().catch(() => {});
   try { checkForUpdate(await (await fetch("/api/health", { cache: "no-store" })).json()); } catch (_) { /* offline */ }
 }
