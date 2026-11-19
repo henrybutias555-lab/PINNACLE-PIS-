@@ -291,3 +291,15 @@ label.gap .ns-tag { display: block; }
 .reader p { margin: .3rem 0; }
 mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px; }
 .rs-find input { flex: 1; min-width: 0; }
+
+/* Ask the document */
+.ask-box { border: 1px solid var(--border); border-radius: 10px; padding: .6rem; margin: .5rem 0 .75rem; }
+.ask-box .rs-ask-form input { flex: 1; min-width: 0; }
+.ask-log { max-height: 40vh; overflow: auto; }
+.ask-q { margin: .6rem 0 .2rem; font-weight: 600; }
+.ask-a { background: color-mix(in srgb, var(--brand, #0f4c5c) 7%, transparent); border-radius: 8px; padding: .5rem .7rem; }
+.ask-a.not-found { background: color-mix(in srgb, var(--muted) 10%, transparent); }
+.ask-a p { margin: .2rem 0; }
+.ask-a blockquote { margin: .35rem 0; padding: .3rem .6rem; border-left: 3px solid var(--brand-2, #c9a227); cursor: pointer; font-style: italic; }
+.ask-a blockquote:hover { background: color-mix(in srgb, var(--brand-2, #c9a227) 12%, transparent); }
+.reader .quoted { background: color-mix(in srgb, var(--brand-2, #c9a227) 25%, transparent); border-radius: 4px; }

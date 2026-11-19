@@ -1704,3 +1704,41 @@ def test_research_bank(client, admin, make_user):
     assert client.delete(f"/api/research/{doc['id']}", headers=junior).status_code == 403
     assert client.post("/api/research", headers=admin, files={"file": ("x.exe", b"MZ", "application/octet-stream")}).status_code == 415
     assert client.delete(f"/api/research/{doc['id']}", headers=admin).status_code == 204
+
+
+def test_ask_the_document(client, admin, make_user, monkeypatch):
+    import json as _json
+
+    from app.config import Settings
+    from app.services import gemini, llm
+
+    text = ("Product Requirements Document\nSuccess Metrics\n60%+ reduction in time spent gathering market/cost "
+            "evidence\nHigh accuracy of AI data extraction\nFuture Considerations (Phase 2)\nMobile site inspection data capture\n")
+    doc = client.post("/api/research", headers=admin, files={"file": ("prd.txt", text.encode(), "text/plain")},
+                      data={"category": "Company documents"}).json()
+    viewer = make_user("viewer")
+    # no AI: the best-matching passages
+    r = client.post(f"/api/research/{doc['id']}/ask", headers=viewer, json={"question": "What are the success metrics?"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["method"] == "search" and "60%+ reduction" in body["quotes"][0]
+    # with the AI: its answer, and only quotes that are really in the document
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "provider", lambda: "gemini")
+    seen = {}
+
+    def fake_call(system, contents, **kw):
+        seen["prompt"] = contents[0]
+        return _json.dumps({"answer": "A 60%+ cut in evidence-gathering time and accurate extraction.", "found": True,
+                            "quotes": ["60%+ reduction in time spent gathering market/cost evidence",
+                                       "An invented sentence that is not in the document"]})
+    monkeypatch.setattr(gemini, "_call", fake_call)
+    body = client.post(f"/api/research/{doc['id']}/ask", headers=viewer, json={"question": "What are the success metrics?"}).json()
+    assert body["method"] == "ai" and body["answer"].startswith("A 60%+ cut")
+    assert body["quotes"] == ["60%+ reduction in time spent gathering market/cost evidence"]
+    assert "<document" in seen["prompt"] and "Question: What are the success metrics?" in seen["prompt"]
+    # an AI failure falls back to the search, with a note
+    monkeypatch.setattr(gemini, "_call", lambda *a, **k: (_ for _ in ()).throw(llm.AIError("rate limit")))
+    body = client.post(f"/api/research/{doc['id']}/ask", headers=viewer, json={"question": "phase 2 plans"}).json()
+    assert body["method"] == "search" and "rate limit" in body["warning"] and "Mobile site" in body["quotes"][0]
+    assert client.post(f"/api/research/{doc['id']}/ask", headers=viewer, json={"question": "?"}).status_code == 422

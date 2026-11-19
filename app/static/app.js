@@ -1698,7 +1698,7 @@ async function loadResearch() {
       ${d.summary ? `<p>${highlight(d.summary, f.q)}</p>` : ""}
       ${d.snippet ? `<p class="snippet small">…${highlight(d.snippet, f.q)}</p>` : ""}
       ${(d.tags || []).length ? `<p>${d.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join(" ")}</p>` : ""}
-      <div class="row gap">${d.has_text ? '<button class="btn small primary rs-read">Read</button>' : ""}
+      <div class="row gap">${d.has_text ? '<button class="btn small primary rs-ask">💬 Ask</button><button class="btn small rs-read">Read</button>' : ""}
         <button class="btn small rs-dl">Download</button>
         ${can("junior") ? '<button class="btn small rs-edit">Edit details</button>' : ""}
         ${can("senior") ? '<button class="btn small danger rs-del">Delete</button>' : ""}</div>
@@ -1706,6 +1706,7 @@ async function loadResearch() {
   $$(".research-doc", box).forEach((card) => {
     const id = card.dataset.id, d = res.items.find((x) => String(x.id) === id);
     $(".rs-read", card)?.addEventListener("click", () => readResearch(id, f.q));
+    $(".rs-ask", card)?.addEventListener("click", () => readResearch(id, f.q, true));
     $(".rs-dl", card).onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
     $(".rs-edit", card)?.addEventListener("click", () => editResearch(d));
     $(".rs-del", card)?.addEventListener("click", async () => {
@@ -1714,16 +1715,53 @@ async function loadResearch() {
     });
   });
 }
-async function readResearch(id, q) {
+const researchChats = {};   // questions asked per document, kept while the page is open
+async function readResearch(id, q, focusAsk = false) {
   const d = await api(`/api/research/${id}?${qs({ q })}`);
   const body = (d.text || "").split(/\n+/).map((line) => line.trim()).filter(Boolean)
     .map((line) => (/^##\s/.test(line) ? `<h4>${highlight(line.replace(/^##\s*/, ""), q)}</h4>` : `<p>${highlight(line, q)}</p>`)).join("");
   openModal(`<div class="row between"><h3>${esc(d.title)}</h3><div class="row gap"><button class="btn small" id="rs-dl2">Download original</button><button class="btn" onclick="closeModal()">Close</button></div></div>
     <p class="muted small">${esc(d.category)}${d.author ? ` · ${esc(d.author)}` : ""}${d.year ? ` · ${esc(d.year)}` : ""} · ${esc(d.filename)}</p>
+    <section class="ask-box">
+      <form class="row gap rs-ask-form"><input name="question" maxlength="1000" placeholder="💬 Ask this document, e.g. What are the success metrics?" autocomplete="off"><button class="btn small primary">Ask</button></form>
+      <div class="ask-log"></div>
+    </section>
     <form class="row gap rs-find"><input name="q" value="${esc(q || "")}" placeholder="Find in this document"><button class="btn small">Find</button></form>
     <div class="reader">${body || '<p class="muted">No readable text in this file. Download it to view.</p>'}</div>`);
   $("#rs-dl2").onclick = () => download(`/api/research/${id}/file`, d.filename).catch((e) => toast(e.message, true));
   $(".rs-find").onsubmit = (e) => { e.preventDefault(); readResearch(id, new FormData(e.target).get("q")); };
+  const log = $(".ask-log");
+  const chat = (researchChats[id] = researchChats[id] || []);
+  const showInDoc = (quote) => {
+    const norm = (x) => x.replace(/\s+/g, " ").trim().toLowerCase();
+    const paras = $$(".reader p, .reader h4");
+    // a quote may join several lines ("Heading: line; line"): find the first piece that is in the text
+    const pieces = [quote, ...quote.split(/[:;]\s+/)].map((x) => norm(x).slice(0, 60)).filter((x) => x.length >= 6);
+    let hit = null;
+    for (const want of pieces) { hit = paras.find((p) => norm(p.textContent).includes(want)); if (hit) break; }
+    if (hit) { $$(".reader .quoted").forEach((x) => x.classList.remove("quoted")); hit.classList.add("quoted"); hit.scrollIntoView({ block: "center", behavior: "smooth" }); }
+  };
+  const render = () => {
+    log.innerHTML = chat.map((m, i) => `<div class="ask-q">🙋 ${esc(m.question)}</div>
+      <div class="ask-a ${m.found === false ? "not-found" : ""}">${m.pending ? '<span class="muted">Reading the document…</span>' : `
+        <p>${esc(m.answer).replace(/\n/g, "<br>")}</p>
+        ${(m.quotes || []).map((x, j) => `<blockquote data-i="${i}" data-j="${j}" title="Show in the document">“${esc(x)}”</blockquote>`).join("")}
+        <p class="muted small">${m.method === "ai" ? "Answered by the AI from this document only" : "Built-in search (no AI)"}${m.warning ? ` · ${esc(m.warning)}` : ""}</p>`}</div>`).join("");
+    $$("blockquote", log).forEach((bq) => (bq.onclick = () => showInDoc(chat[bq.dataset.i].quotes[bq.dataset.j])));
+  };
+  render();
+  $(".rs-ask-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const input = $("[name=question]", e.target), question = input.value.trim();
+    if (question.length < 3) return;
+    const entry = { question, pending: true };
+    chat.push(entry); render(); input.value = "";
+    try { Object.assign(entry, await api(`/api/research/${id}/ask`, { method: "POST", body: { question } }), { pending: false }); }
+    catch (err) { Object.assign(entry, { pending: false, found: false, answer: err.message, quotes: [], method: "error" }); }
+    render();
+    log.lastElementChild?.scrollIntoView({ block: "nearest" });
+  };
+  if (focusAsk) $(".rs-ask-form [name=question]").focus();
   $(".reader mark")?.scrollIntoView({ block: "center" });
 }
 function editResearch(d) {
