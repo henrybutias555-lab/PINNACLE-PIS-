@@ -131,6 +131,7 @@ class RecordBase(BaseModel):
     assumptions: str | None = None
     comparables: list[Comparable] | None = None
     cost_items: list[CostItem] | None = None
+    external_works_rate: float | None = None
 
     total_cost: float | None = None
     cost_per_sqm: float | None = None

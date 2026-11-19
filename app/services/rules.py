@@ -483,7 +483,9 @@ _BUILDING_PART = (r"(?:(?:ground|first|second|third|fourth|fifth|upper|lower|top
 
 MAIN_BUILDING, EXTERNAL_WORKS = "Main building", "External works"
 _MAIN_PART = re.compile(r"\b(?:floors?|stor(?:e)?ys?|levels?|main (?:building|house|block)|principal building|"
-                        r"basement|mezzanine|pent ?house|attic|superstructure|substructure|(?:the )?building)\b", re.I)
+                        r"basement|mezzanine|pent ?house|attic|superstructure|substructure|(?:the )?building|"
+                        r"blocks?|wings?|apartments?|flats?|offices?|shops?|warehouses?|halls?|bungalows?|duplex|"
+                        r"town ?houses?|villas?|residences?|dwellings?|houses?)\b", re.I)
 
 
 def building_part(item: str | None, given: str | None = None) -> str:
@@ -545,6 +547,31 @@ def adopted_rate(items: list[dict]) -> float | None:
         area = sum(r["area_sqm"] for r in building)
         return round(sum(r["rate"] * r["area_sqm"] for r in building) / area, 2) if area else None
     return round(sum(r["rate"] for r in building) / len(building), 2)
+
+
+def _weighted(rows: list[dict]) -> float | None:
+    rows = [r for r in rows if r.get("rate")]
+    if not rows:
+        return None
+    if all(r.get("area_sqm") for r in rows):
+        area = sum(r["area_sqm"] for r in rows)
+        return round(sum(r["rate"] * r["area_sqm"] for r in rows) / area, 2) if area else None
+    return round(sum(r["rate"] for r in rows) / len(rows), 2)
+
+
+def cost_groups(items: list[dict]) -> dict:
+    """{'main': {...}, 'external': {...}} with rate per m², area and amount of each group."""
+    out = {}
+    for key, part in (("main", MAIN_BUILDING), ("external", EXTERNAL_WORKS)):
+        rows = [r for r in (items or []) if building_part(r.get("item"), r.get("part")) == part]
+        out[key] = {"rate": _weighted(rows), "lines": len(rows),
+                    "area_sqm": round(sum(r.get("area_sqm") or 0 for r in rows), 2) or None,
+                    "amount": round(sum(r.get("amount") or 0 for r in rows), 2) or None}
+    return out
+
+
+def external_works_rate(items: list[dict]) -> float | None:
+    return cost_groups(items)["external"]["rate"]
 
 
 def cost_items_from_text(text: str) -> list[dict]:
@@ -801,6 +828,7 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
         record["gps_coordinates"] = find_coordinates(text)
         record["cost_items"] = cost_items_from_text(text) or None
         record["cost_per_sqm"] = adopted_rate(record["cost_items"] or []) or construction_rate(text)
+        record["external_works_rate"] = external_works_rate(record["cost_items"] or [])
     elif category == "cost":
         record["total_cost"], cur = _labelled_amount(text, ["total construction cost", "total cost", "contract sum", "estimated cost", "total"])
         record["cost_per_sqm"], c2 = _labelled_amount(text, ["cost per square met", "cost per sq", "cost/m", "rate per m", "per m2", "per m²"])

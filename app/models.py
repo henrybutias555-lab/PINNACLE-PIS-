@@ -123,6 +123,8 @@ class Record(Base):
     comparables: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # rates adopted per part of the building: [{item, area_sqm, rate, amount}]
     cost_items: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # cost_per_sqm is the main building's rate; external works (tap area, compound ...) have their own
+    external_works_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Construction cost
     total_cost: Mapped[float | None] = mapped_column(Float, nullable=True)

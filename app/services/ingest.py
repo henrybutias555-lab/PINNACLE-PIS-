@@ -105,6 +105,7 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         items = rules.tidy_cost_items(from_text or rec.get("cost_items") or [])
         if items:
             rec["cost_items"] = items
+            rec["external_works_rate"] = rules.external_works_rate(items)
             rate = rules.adopted_rate(items)
             if rate and rec.get("cost_per_sqm") != rate:
                 parts = "; ".join(f"{(r.get('item') or 'item')} {r['rate']:,.0f}" for r in items[:6])

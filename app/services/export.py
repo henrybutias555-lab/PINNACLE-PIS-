@@ -135,7 +135,8 @@ RECORD_COLUMNS = [
     ("Capital value (opinion of value)", "capital_value", "#,##0"), ("Value per m²", "value_per_sqm", "#,##0"),
     ("Annual rent", "annual_rent", "#,##0"), ("Rent per m² p.a.", "rent_per_sqm", "#,##0.00"),
     ("Yield %", "yield_pct", "0.00"), ("Total construction cost", "total_cost", "#,##0"),
-    ("Cost per m²", "cost_per_sqm", "#,##0"), ("Specification", "specification", None),
+    ("Cost per m²", "cost_per_sqm", "#,##0"), ("External works rate per m²", "external_works_rate", "#,##0"),
+    ("Specification", "specification", None),
     ("Avg house price", "avg_price", "#,##0"), ("Avg monthly rent", "avg_monthly_rent", "#,##0"),
     ("Supply (units)", "supply_units", "#,##0"), ("Demand", "demand_level", None),
     ("Affordability ratio", "affordability_ratio", "0.0"),
@@ -408,15 +409,15 @@ def cost_items_sheet(book, records: list[Record]) -> None:
         for i, c in enumerate(r.cost_items or [], start=1):
             c = c or {}
             rows.append([r.id, i, r.location or r.address, r.property_type, c.get("item"), c.get("part"), c.get("area_sqm"),
-                         c.get("rate"), c.get("amount"), r.cost_per_sqm, r.record_date, r.currency])
+                         c.get("rate"), c.get("amount"), r.cost_per_sqm, r.external_works_rate, r.record_date, r.currency])
     if not rows:
         return
     ws = book.sheet("Rates adopted", "Rates adopted (cost approach / DRC)",
                     "Each line with its area, rate and amount; 'Construction cost / m²' is the floor-area-weighted "
                     "rate of the main building (its floors); external works are listed but not averaged in")
     book.table(ws, ["Ref", "Line", "Location", "Property type", "Item / floor", "Part", "Area (m²)", "Rate per m²", "Amount",
-                    "Construction cost / m²", "Date of valuation", "Currency"], rows,
-               [None, "0", None, None, None, None, "#,##0.00", "#,##0", "#,##0", "#,##0", "yyyy-mm-dd", None], blank=BLANK)
+                    "Main building cost / m²", "External works cost / m²", "Date of valuation", "Currency"], rows,
+               [None, "0", None, None, None, None, "#,##0.00", "#,##0", "#,##0", "#,##0", "#,##0", "yyyy-mm-dd", None], blank=BLANK)
 
 
 def comparables_sheet(book, records: list[Record]) -> None:
