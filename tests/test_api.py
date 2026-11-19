@@ -1414,3 +1414,45 @@ def test_only_admins_see_locations(client, admin, make_user):
         assert client.get("/api/activity?action=sign_in_location", headers=h).status_code == 403
         assert client.patch("/api/users/1", headers=h, json={"role": "admin"}).status_code == 403
     assert client.get("/api/users", headers=admin).status_code == 200
+
+
+def test_reader_assumption_wording():
+    from app.services import rules
+    text = ("VALUATION REPORT\nLocation: East Legon Hills\n"
+            "That the property is not subject to any unusual or especially onerous restrictions, encumbrances "
+            "or outgoings and that good title can be shown.\n"
+            "That possession of this report does not carry with it the right of publication.\n"
+            "The physical condition is based on a visual inspection only; no soil or engineering tests were carried out.\n"
+            "This report is for the use of the addressee, her Bankers, Solicitors and Auditors only.\n"
+            "Yours faithfully,\nAudrey Darkwah\n")
+    r = rules.extract(text)["records"][0]
+    assert r["encumbrances"].startswith("None stated")
+    assert "publication" in r["legal_disclaimer"]
+    assert "visual inspection" in r["inspection_limitation"]
+    assert "Bankers" in r["purpose_restriction"]
+    assert "Yours faithfully" not in (r.get("assumptions") or "")
+
+
+def test_rerun_keeps_saved_values(client, admin, monkeypatch):
+    from app.config import Settings
+    from app.services import llm
+
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    full = {"category": "valuation", "location": "Rerunville", "capital_value": 2_300_000, "currency": "GHS",
+            "legal_disclaimer": "Standard valuation disclaimers apply",
+            "inspection_limitation": "Visual inspection only", "tags": ["townhouse"]}
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {"report_type": "valuation", "title": "R", "records": [full]})
+    rep = client.post("/api/reports/upload?sync=true", headers=admin,
+                      files=[("files", ("r.txt", b"valuation report text", "text/plain"))]).json()[0]
+    assert client.post(f"/api/reports/{rep['id']}/confirm", headers=admin,
+                       json={"records": [full]}).status_code in (200, 201)
+    # the AI now gives a thinner reading
+    thin = {"category": "valuation", "location": "Rerunville", "capital_value": 2_300_000, "currency": "GHS",
+            "tags": ["residential"]}
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {"report_type": "valuation", "title": "R", "records": [thin]})
+    again = client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin).json()
+    rec = again["draft"]["records"][0]
+    assert rec["legal_disclaimer"] == "Standard valuation disclaimers apply"
+    assert rec["inspection_limitation"] == "Visual inspection only"
+    assert set(rec["tags"]) == {"townhouse", "residential"}
+    assert "legal_disclaimer" in rec["kept"]

@@ -129,6 +129,7 @@ def reprocess(report_id: int, request: Request, user: User = Depends(require_rol
         raise HTTPException(422, f"Re-extraction failed: {error}")
     report.status = "confirmed"
     report.report_type, report.title = previous_type, previous_title or report.title
+    _keep_saved_values(db, report)
     report.draft = {**(report.draft or {}), "reextracted": True,
                     "reextracted_at": datetime.now(timezone.utc).isoformat(),
                     "reextracted_by": user.email}
@@ -136,6 +137,38 @@ def reprocess(report_id: int, request: Request, user: User = Depends(require_rol
     log_activity(db, user, "report_reextracted", report.filename,
                  f"method={report.extraction_method}; saved records unchanged until applied", request)
     return _out(db, report)
+
+
+def _keep_saved_values(db: Session, report: Report) -> None:
+    """A re-run must not lose what was already approved. Where the new reading left a field blank,
+    or only guessed it (auto-filled), the saved value is kept; values the new reading actually found
+    stay as the proposal (the reviewer sees the saved value beside them)."""
+    saved = list(db.scalars(select(Record).where(Record.report_id == report.id).order_by(Record.id)))
+    draft = dict(report.draft or {})
+    records = [dict(r) for r in draft.get("records", [])]
+    for rec, old in zip(records, saved):
+        old_values = RecordOut.model_validate(old).model_dump(mode="json")
+        guessed = dict(rec.get("autofilled") or {})
+        kept = {}
+        for field, value in old_values.items():
+            if field in ("id", "report_id", "created_at", "updated_at", "category") or value in (None, "", [], {}):
+                continue
+            if field == "tags":
+                merged = list(dict.fromkeys([*(value or []), *(rec.get("tags") or [])]))
+                rec["tags"] = merged
+                continue
+            if rec.get(field) in (None, "", [], {}) or (field in guessed and rec.get(field) != value):
+                rec[field] = value
+                guessed.pop(field, None)
+                kept[field] = "kept from the saved record (not found in this reading)"
+        if guessed:
+            rec["autofilled"] = guessed
+        else:
+            rec.pop("autofilled", None)
+        if kept:
+            rec["kept"] = kept
+    draft["records"] = records
+    report.draft = draft
 
 
 @router.post("/{report_id}/discard-reextraction", response_model=ReportOut)

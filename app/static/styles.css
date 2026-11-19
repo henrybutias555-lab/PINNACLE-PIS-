@@ -267,3 +267,5 @@ label.gap .ns-tag { display: block; }
 
 .loc-notice { width: min(36rem, calc(100vw - 2rem)); box-sizing: border-box; align-items: flex-start; gap: .75rem; text-align: left; line-height: 1.4; }
 .loc-warn { color: var(--warn, #b7791f); font-weight: 600; }
+
+.kept-hint { font-size: .74rem; font-style: italic; color: var(--muted); }

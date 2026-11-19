@@ -288,8 +288,29 @@ def _accommodation(text: str) -> str | None:
     return _clean(m.group(1)) if m else None
 
 
+_ASSUMPTION = re.compile(r"^\W*(?:that\b|it (?:is|has been) assumed|we (?:have )?assumed|assum)|"
+                         r"not subject to any (?:unusual|onerous)|assum(?:e|ed|ing|ption)", re.I)
+
+
+def _encumbrances(text: str) -> str | None:
+    """Encumbrances the report states. A valuation *assumption* ('That the property is not subject to
+    any unusual ... encumbrances') is not a finding: then record that none are known."""
+    pattern = (r"encumbrance|free from (?:all )?(?:charges|encumbrances|disputes)|mortgage(?:d)? to|caveat|"
+               r"litigation on the")
+    hits = [x for x in _sentences(text) if re.search(pattern, x, re.I)]
+    stated = [x for x in hits if not _ASSUMPTION.search(x)]
+    if stated:
+        return " ".join(stated[:2])[:500].rstrip()
+    if hits:
+        return "None stated (the valuation assumes no unusual or onerous encumbrances)"
+    return None
+
+
 def _sentences_with(text: str, pattern: str, limit: int = 3, max_len: int = 500) -> str | None:
     hits = [s for s in _sentences(text) if re.search(pattern, s, re.I)]
+    # a sentence at the end of the letter can run into the sign-off
+    hits = [re.split(r"(?i)\b(?:yours (?:faithfully|sincerely|truly)|for and on behalf of)\b", h)[0].strip(" ,;") for h in hits]
+    hits = [h for h in hits if h]
     out = " ".join(hits[:limit])
     return out[:max_len].rstrip() if out else None
 
@@ -417,15 +438,21 @@ def read_report(text: str, record: dict, helpers) -> dict[str, object]:
     put("highest_best_use", _sentences_with(text, r"highest and best use|highest & best use", limit=1, max_len=250))
     put("use_occupancy", _sentences_with(text, r"owner[- ]occupied|occupied by|tenanted|currently (?:used|vacant|let)|"
                                                r"\bvacant\b|let to|in use as", limit=1, max_len=250))
-    put("encumbrances", _sentences_with(text, r"encumbrance|free from (?:all )?(?:charges|encumbrances|disputes)|"
-                                              r"mortgage(?:d)? to|caveat|litigation on the", limit=2))
+    put("encumbrances", _encumbrances(text))
     put("inspection_limitation", _sentences_with(text, r"no structural survey|did not (?:carry out|undertake|inspect|test)|"
                                                        r"not (?:carried out|tested|inspected)|unable to inspect|"
-                                                       r"inspection was limited", limit=2))
+                                                       r"inspection was limited|visual inspection|"
+                                                       r"no (?:soil|engineering|structural|site) (?:tests?|investigations?|surveys?)|"
+                                                       r"(?:soil|engineering) (?:tests?|investigations?) (?:were|was|have) not",
+                                                 limit=2))
     put("legal_disclaimer", _sentences_with(text, r"no responsibility|not responsible|legal (?:opinion|advice|title)|"
-                                                  r"does not constitute|we accept no|without liability", limit=2))
+                                                  r"does not constitute|we accept no|without liability|no liability|"
+                                                  r"disclaim|does not carry (?:the )?right|right (?:of|to) publication|"
+                                                  r"without (?:our|the) (?:prior )?written (?:consent|approval)", limit=2))
     put("purpose_restriction", _sentences_with(text, r"sole use|solely for|only for the purpose|should not be (?:used|relied)|"
-                                                     r"confidential to|not be reproduced|no reliance|third part(?:y|ies)",
+                                                     r"confidential to|not be reproduced|no reliance|third part(?:y|ies)|"
+                                                     r"(?:use|benefit|purpose) of the addressee|addressee(?:'s)? only|"
+                                                     r"bankers?,? (?:and )?solicitors|for the (?:exclusive|specific) use",
                                                limit=2))
     put("assumptions", _sentences_with(text, r"\bassum(?:e|ed|ing|ption)", limit=4, max_len=700))
     put("valuer", _valuer(text))
