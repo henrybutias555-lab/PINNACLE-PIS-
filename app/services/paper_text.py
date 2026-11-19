@@ -108,8 +108,17 @@ def read_paper_pdf(data: bytes) -> tuple[str, dict]:
                 if 5 <= len(candidate) <= 250 and not _COVER_LINE.search(candidate):
                     details["title"] = candidate
                 break
+        cover_names = authors_from_cover(cover)
         pages = pages[1:]
+    else:
+        cover_names = []
     text = join_paragraphs(clean_lines("\n".join(pages)))
+    # the paper's own author line lists everyone; a ResearchGate cover shows only some ("authors, including")
+    names = authors_from_text(text)
+    if len(cover_names) > len(names):
+        names = cover_names
+    if names:
+        details["authors"] = names
     title = meta.get("title") or ""
     if title and 8 <= len(title) <= 250 and not re.match(r"(?i)microsoft word|untitled|^doc\d*$|\.(?:docx?|pdf)$", title):
         details.setdefault("title", title)
@@ -122,7 +131,69 @@ def read_paper_pdf(data: bytes) -> tuple[str, dict]:
     abstract = abstract_of(text)
     if abstract:
         details["abstract"] = abstract
+    words = keywords_of(text)
+    if words:
+        details["keywords"] = words
     return text, details
+
+
+_NAME = r"[A-Z][A-Za-z'’\-]+(?:\s+[A-Z]\.?)*(?:\s+[A-Z][A-Za-z'’\-]+){1,3}"
+_NOT_NAME = re.compile(r"(?i)universit|college|institute|school|department|faculty|centre|center|ltd|limited|"
+                       r"publications?|citations?|reads|profile|journal|article|project|abstract|introduction|keywords|"
+                       r"see\b|view|ghana|accra|kumasi|sydney|london|business|finance|property|valuation|approach|"
+                       r"\d")
+
+
+def _names(chunk: str) -> list[str]:
+    out = []
+    for part in re.split(r"\s*(?:,|;|&|\band\b)\s*", chunk or ""):
+        part = re.sub(r"[\d*†‡§¹²³⁴]+$", "", part.strip()).strip()
+        if re.fullmatch(_NAME, part) and not _NOT_NAME.search(part) and part not in out:
+            out.append(part)
+    return out
+
+
+def authors_from_cover(cover: str) -> list[str]:
+    """ResearchGate cover: each author's name sits above their affiliation and 'N PUBLICATIONS N CITATIONS'."""
+    lines = [ln.strip() for ln in _nfkc(cover).splitlines() if ln.strip()]
+    names = []
+    for i, ln in enumerate(lines):
+        if re.search(r"(?i)\d+\s*publications?", ln):
+            for back in (2, 1, 3):
+                if i - back >= 0:
+                    found = _names(lines[i - back])
+                    if found:
+                        names += [n for n in found if n not in names]
+                        break
+    m = re.search(r"(?is)authors?,?\s*including:?\s*\n(.+?)\n", _nfkc(cover))
+    if not names and m:
+        names = _names(m.group(1))
+    return names[:8]
+
+
+def authors_from_text(text: str) -> list[str]:
+    """'Authors: Nelson Chan and Norman Hacker', 'By A. Mensah, K. Boateng' or a name line under the title."""
+    head = (text or "")[:3000]
+    m = re.search(r"(?im)^\s*(?:authors?|by|written by|prepared by)\s*[:\-]?\s*(.+)$", head)
+    if m:
+        chunk = re.split(r"(?i)\s*(?:affiliation|university|department|email|e-mail)\b", m.group(1))[0]
+        names = _names(chunk)
+        if names:
+            return names[:8]
+    for ln in head.splitlines()[1:8]:          # a line of names just under the title
+        names = _names(ln)
+        if names and len(" ".join(names)) >= len(ln.strip()) * 0.6:
+            return names[:8]
+    return []
+
+
+def keywords_of(text: str) -> list[str]:
+    """The paper's own 'Keywords:' line."""
+    m = re.search(r"(?im)^\s*key\s*-?\s*words?\s*[:.\-–]\s*(.+)$", (text or "")[:20000])
+    if not m:
+        return []
+    words = [w.strip(" .;").lower() for w in re.split(r"[,;·•]|\s{2,}", m.group(1)) if 1 < len(w.strip(" .;")) <= 40]
+    return list(dict.fromkeys(words))[:10]
 
 
 def abstract_of(text: str) -> str | None:
