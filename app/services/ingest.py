@@ -90,6 +90,13 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         if rec.get("purpose"):
             from .reader import standard_purpose
             rec["purpose"] = standard_purpose(rec["purpose"])
+        # The method as the report words it (not the reading's own description).
+        from .reader import methods_as_written
+        written = methods_as_written(report.raw_text or text or "")
+        if written and (rec.get("category") or "valuation") == "valuation" and rec.get("method") != written:
+            if rec.get("method"):
+                rec.setdefault("autofilled", {})["method"] = "as written in the report"
+            rec["method"] = written
         from ..routers.records import RATING_FIELDS, normalise_rating
         for field in RATING_FIELDS:
             if rec.get(field):

@@ -907,8 +907,8 @@ async function openReview(id) {
       ? `<div class="notice">New extraction (${esc(r.extraction_method || "")}) from ${esc(new Date(draft.reextracted_at).toLocaleString())}.
          Fields marked <span class="changed-chip">changed</span> differ from the saved record; the saved value is shown under each one.
          Nothing changes until you tap <b>Update saved records</b>.</div>`
-      : approved ? `<p class="muted small">Approved ${r.confirmed_at ? esc(new Date(r.confirmed_at).toLocaleString()) : ""}. Showing the saved record${saved.length === 1 ? "" : "s"}.
-         Tap <b>Re-run extraction</b> to read the report again (e.g. with Gemini) and update it.</p>` : "";
+      : approved ? `<p class="muted small">🔒 Approved ${r.confirmed_at ? esc(new Date(r.confirmed_at).toLocaleString()) : ""}, locked. Showing the saved record${saved.length === 1 ? "" : "s"}.
+         The only way to change ${saved.length === 1 ? "it" : "them"} is <b>Re-run extraction</b>, then review and tap <b>Update saved records</b>.</p>` : "";
     panel.innerHTML = `
       <div class="row between"><h3>Review: ${esc(r.filename)}</h3><div class="row gap">${actions.join("")}</div></div>
       <p class="muted small">Status: ${statusPill(r.status)} · Extraction: ${esc(r.extraction_method || "—")}</p>
@@ -1054,11 +1054,17 @@ function rateFigure(r) {
 }
 
 function openRecord(rec) {
-  const editable = can("junior");
+  const locked = !!(rec && rec.locked);
+  const editable = can("junior") && !locked;
   openModal(`<div class="row between"><h3>Record #${rec && rec.id ? rec.id : "new"}</h3><button class="btn" onclick="closeModal()">Close</button></div>
-    ${rec && rec.report_id ? `<p class="muted small">Source report #${rec.report_id}</p>` : ""}
+    ${locked ? `<div class="notice lock-note">🔒 <b>Approved, locked.</b> This record was saved from approved report #${rec.report_id} and can't be edited here.
+      To change it, open the report, tap <b>Re-run extraction</b>, check the new reading and tap <b>Update saved records</b>.
+      ${can("junior") ? '<button type="button" class="btn small" id="open-source">Open the report</button>' : ""}</div>`
+      : rec && rec.report_id ? `<p class="muted small">Source report #${rec.report_id}</p>` : ""}
     <form id="rec-form">${recordEditorHTML(rec || { category: "valuation", currency: (state.health && state.health.default_currency) || "GHS" }, 0)}</form>
-    <div class="row gap">${editable ? '<button class="btn primary" id="rec-save">Save</button>' : ""}${rec && rec.id && can("senior") ? '<button class="btn danger" id="rec-del">Delete</button>' : ""}</div>`);
+    <div class="row gap">${editable ? '<button class="btn primary" id="rec-save">Save</button>' : ""}${rec && rec.id && can("senior") && !locked ? '<button class="btn danger" id="rec-del">Delete</button>' : ""}</div>`);
+  const src = $("#open-source");
+  if (src) src.onclick = () => { closeModal(); location.hash = "#ingest"; setTimeout(() => openReview(rec.report_id), 300); };
   const el = $("#rec-form .review-record");
   $(".rm-record", el).remove();
   initRecordEditor(el, rec || {});
@@ -1066,7 +1072,7 @@ function openRecord(rec) {
     $(".row.gap", el).insertAdjacentHTML("afterbegin", '<button type="button" class="btn small fill-gaps">✨ Fill gaps</button>');
     $(".fill-gaps", el).onclick = (ev) => fillGaps(el, rec || {}, rec && rec.report_id, ev.target);
   }
-  if (!editable) $$("#rec-form input, #rec-form select, #rec-form textarea").forEach((x) => (x.disabled = true));
+  if (!editable) $$("#rec-form input, #rec-form select, #rec-form textarea, #rec-form .comp-add, #rec-form .comp-del").forEach((x) => (x.disabled = true));
   // Re-render with the category's fields, keeping what has been typed so far.
   $("select[name=category]", el).addEventListener("change", () => {
     const typed = readRecordEditor(el, rec || {});
@@ -1213,7 +1219,7 @@ function sheetCell(rec, [key, , kind]) {
   let v = rec[key];
   if (kind === "tags") v = (v || []).join(", ");
   v = v ?? "";
-  const ro = can("junior") ? "" : " disabled";
+  const ro = can("junior") && !rec.locked ? "" : ` disabled${rec.locked ? ' title="Approved report: locked (re-run the extraction to change it)"' : ""}`;
   const common = `data-id="${rec.id}" data-key="${key}" data-kind="${kind || ""}"${ro}`;
   if (kind === "mmda") return `<select ${common}>${mmdaOptions(v, "—")}</select>`;
   if (kind === "basis") { const b = basisCanonical(v); return `<select ${common}><option value="">—</option>${(BASES.includes(b) || !b ? BASES : [b, ...BASES]).map((o) => `<option ${o === b ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`; }

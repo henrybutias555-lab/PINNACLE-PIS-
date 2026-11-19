@@ -180,6 +180,52 @@ def standard_purpose(text: str | None) -> str | None:
     return (clean[:60] if len(clean) <= 60 else clean.split(",")[0][:60]).strip() or None
 
 
+_METHOD_WORDS = re.compile(r"compar|\bcost\b|replacement|investment|income|capitali[sz]|residual|profits?\b|"
+                           r"contractor|market approach|\bdrc\b", re.I)
+_METHOD_VOCAB = {"market", "sales", "sale", "direct", "comparative", "comparison", "comparable", "comparables", "cost",
+                 "depreciated", "replacement", "investment", "income", "capitalisation", "capitalization", "residual",
+                 "profits", "profit", "contractor's", "contractors", "contractor", "drc", "and", "&", "discounted",
+                 "cash", "flow", "dcf", "summation", "development", "hypothetical", "accounts", "receipts",
+                 "expenditure", "reinstatement", "rental", "yield", "term", "reversion", "hardcore", "layer"}
+_NOT_USED = re.compile(r"\bnot\b[^.]{0,40}\b(?:adopted|used|employed|applied|appropriate|applicable|considered|"
+                       r"suitable|relied)|\b(?:rejected|inappropriate|unsuitable)\b", re.I)
+
+
+def methods_as_written(text: str | None) -> str | None:
+    """The valuation method(s) in the report's own words, e.g. 'Market Comparative and Cost Approaches'.
+    Methods the report says were not used are left out; each method is named once."""
+    if not text:
+        return None
+    out, seen = [], set()
+    for sentence in _sentences(text):
+        if _NOT_USED.search(sentence):
+            continue
+        for m in re.finditer(r"(?i)((?:(?!approach|method)[\w'’()&/-]+\s+){0,6})(approach(?:es)?|methods?)\b", sentence):
+            words = m.group(1).split()
+            keep = []
+            for w in reversed(words):        # only the words that name the method, read backwards
+                if w.lower().strip("(),") in _METHOD_VOCAB:
+                    keep.insert(0, w)
+                else:
+                    break
+            while keep and keep[0].lower() in ("and", "&"):
+                keep.pop(0)
+            words = keep + [m.group(2)]
+            phrase = " ".join(words)
+            if not phrase or not _METHOD_WORDS.search(phrase) or len(words) > 6:
+                continue
+            kinds = set(n for _, n in [(0, k) for k in (standard_methods(phrase) or "").split(" & ") if k])
+            if kinds and kinds <= seen:
+                continue
+            seen |= kinds
+            nice = " ".join(w if w.lower() in ("and", "of", "&") or w.isupper() else w[:1].upper() + w[1:]
+                            for w in phrase.split())
+            out.append(nice)
+        if len(out) >= 3:
+            break
+    return " and ".join(out[:3])[:200] or None
+
+
 def standard_methods(text: str | None) -> str | None:
     if not text:
         return None

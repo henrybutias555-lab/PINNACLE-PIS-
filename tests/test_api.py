@@ -1003,7 +1003,8 @@ def test_long_text_in_short_fields_saves(client, admin):
     assert draft["state_of_repair"] == "Good" and draft["capital_value"] == 2300000
     r = client.post(f"/api/reports/{rep['id']}/confirm", headers=admin, json={"records": [draft]})
     assert r.status_code == 200, r.text
-    rid = client.get(f"/api/records?report_id={rep['id']}", headers=admin).json()["items"][0]["id"]
+    # approved records are locked; a manually entered record is edited instead
+    rid = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Osu"}).json()["id"]
     # a long sentence typed straight into a rating, and an over-long GPS address, still save
     r = client.patch(f"/api/records/{rid}", headers=admin, json={
         "state_of_repair": sentence, "overall_marketability": "Overall, marketability is considered very good " * 10,
@@ -1491,3 +1492,63 @@ def test_purpose_is_a_short_label(client, admin):
         "category": "valuation", "location": "Purposeville",
         "purpose": "To determine the open market value of the property for mortgage purposes"}).json()
     assert r["purpose"] == "Mortgage"
+
+
+def test_approved_records_are_locked(client, admin):
+    import io as _io
+
+    import openpyxl
+
+    rep = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", ("lock.txt", (
+        b"VALUATION REPORT\nLocation: Lockville, Accra\nMarket value: GH\xc2\xa2 1,500,000"), "text/plain"))]).json()[0]
+    draft = rep["draft"]["records"][0]
+    assert client.post(f"/api/reports/{rep['id']}/confirm", headers=admin, json={"records": [draft]}).status_code == 200
+    rec = client.get(f"/api/records?report_id={rep['id']}", headers=admin).json()["items"][0]
+    assert rec["locked"] is True
+    # no direct edit, delete or update without a re-run
+    r = client.patch(f"/api/records/{rec['id']}", headers=admin, json={"capital_value": 9})
+    assert r.status_code == 423 and "Re-run extraction" in r.json()["detail"]
+    assert client.delete(f"/api/records/{rec['id']}", headers=admin).status_code == 423
+    assert client.post(f"/api/reports/{rep['id']}/update-records", headers=admin,
+                       json={"records": [draft]}).status_code == 423
+    # Excel upload cannot change it either
+    xlsx = client.get("/api/exports/evidence?format=xlsx&q=Lockville", headers=admin).content
+    wb = openpyxl.load_workbook(_io.BytesIO(xlsx)); ws = wb["All records"]
+    header = [c.value for c in ws[4]]
+    row = next(r for r in range(5, ws.max_row + 1) if ws.cell(r, header.index("Ref") + 1).value == rec["id"])
+    ws.cell(row, header.index("Capital value (opinion of value)") + 1).value = 9
+    buf = _io.BytesIO(); wb.save(buf)
+    plan = client.post("/api/imports/records/preview", headers=admin,
+                       files={"file": ("e.xlsx", buf.getvalue(), "application/octet-stream")}).json()
+    assert not any(u["id"] == rec["id"] for u in plan["updates"])
+    assert any("locked" in e["error"] for e in plan["errors"])
+    # the way to change it: re-run, then apply
+    client.post(f"/api/reports/{rep['id']}/reprocess", headers=admin)
+    new = client.get(f"/api/reports/{rep['id']}", headers=admin).json()["draft"]["records"]
+    assert client.post(f"/api/reports/{rep['id']}/update-records", headers=admin,
+                       json={"records": new}).status_code == 200
+    # manual records stay editable
+    mid = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Manual"}).json()
+    assert mid["locked"] is False
+    assert client.patch(f"/api/records/{mid['id']}", headers=admin, json={"capital_value": 5_000_000}).status_code == 200
+
+
+def test_method_as_written_in_report(client, admin, monkeypatch):
+    from app.config import Settings
+    from app.services import llm
+    from app.services.reader import methods_as_written
+
+    assert methods_as_written("We adopted the Market Comparative and Cost Approaches.") == \
+        "Market Comparative and Cost Approaches"
+    assert methods_as_written("The Sales Comparison Approach was used. The Investment Method was not considered "
+                              "appropriate.") == "Sales Comparison Approach"
+    assert methods_as_written("No approach to the site was possible.") is None
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {"report_type": "valuation", "title": "M", "records": [{
+        "category": "valuation", "location": "Methodville", "currency": "GHS",
+        "method": "A comparison of similar sales combined with a cost-based analysis"}]})
+    rep = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", ("m.txt", (
+        b"VALUATION REPORT\nIn arriving at our opinion of value, we adopted the Market Comparative and Cost "
+        b"Approaches.\n"), "text/plain"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert rec["method"] == "Market Comparative and Cost Approaches" and rec["autofilled"]["method"]

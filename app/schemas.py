@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 # Typed or exported markers meaning "the report did not state this": stored as blank.
 NOT_STATED = {"not stated", "not stated in report", "n/a", "na", "-", "--", "—", "–", "nil", "not available",
@@ -215,6 +215,12 @@ class RecordOut(RecordBase):
     report_id: int | None = None
     created_at: datetime
     updated_at: datetime
+
+    @computed_field
+    @property
+    def locked(self) -> bool:
+        """Saved from an approved report: changed only by re-running that report's extraction."""
+        return self.report_id is not None
 
 
 class ReportOut(BaseModel):

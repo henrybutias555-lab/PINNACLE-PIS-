@@ -197,6 +197,9 @@ def update_records(report_id: int, body: ConfirmIn, request: Request, user: User
         raise HTTPException(404, "Report not found")
     if report.status != "confirmed":
         raise HTTPException(409, "Only approved reports can be updated; use confirm for new reports")
+    if not (report.draft or {}).get("reextracted"):
+        raise HTTPException(423, "An approved report is locked. Tap Re-run extraction first, then review and "
+                                 "apply the new reading.")
     if not body.records:
         raise HTTPException(400, "Provide at least one record")
     existing = list(db.scalars(select(Record).where(Record.report_id == report.id).order_by(Record.id)))
