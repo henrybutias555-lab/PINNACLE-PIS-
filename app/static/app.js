@@ -156,17 +156,28 @@ $("#pw-btn").addEventListener("click", () => {
 function checkForUpdate(health) {
   if (!health || !health.asset_version || !PAGE_VERSION || health.asset_version === PAGE_VERSION) return;
   if ($("#update-bar")) return;
+  const freshUrl = `${location.pathname}?fresh=${Date.now()}${location.hash}`;
+  // Nothing being edited: load the new version straight away.
+  let last = 0;
+  try { last = Number(sessionStorage.getItem("pis_auto_reload") || 0); } catch (_) {}
+  if (!$(".review-record") && !$(".sheet .dirty") && Date.now() - last > 5 * 60000) {
+    try { sessionStorage.setItem("pis_auto_reload", String(Date.now())); } catch (_) {}
+    location.replace(freshUrl);
+    return;
+  }
   const bar = document.createElement("div");
   bar.id = "update-bar";
   bar.className = "update-bar";
-  bar.innerHTML = 'PIS has been updated. <button class="btn small primary" type="button">Reload now</button>';
-  bar.querySelector("button").onclick = () => location.replace(`${location.pathname}?fresh=${Date.now()}${location.hash}`);
+  bar.innerHTML = 'PIS has been updated. Save your work, then <button class="btn small primary" type="button">Reload now</button>';
+  bar.querySelector("button").onclick = () => location.replace(freshUrl);
   document.body.appendChild(bar);
 }
-document.addEventListener("visibilitychange", async () => {
+async function pollForUpdate() {
   if (document.visibilityState !== "visible") return;
   try { checkForUpdate(await (await fetch("/api/health", { cache: "no-store" })).json()); } catch (_) { /* offline */ }
-});
+}
+document.addEventListener("visibilitychange", pollForUpdate);
+setInterval(pollForUpdate, 60000);   // also while the page stays open
 
 async function boot() {
   let token = null;
