@@ -257,6 +257,7 @@ def evidence_xlsx(records: list[Record], category: str, scope: str) -> bytes:
     book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in records], fmts,
                blank=BLANK)
     comparables_sheet(book, records)
+    cost_items_sheet(book, records)
     _records_sheet(book, records, "All fields")
     return book.bytes()
 
@@ -350,6 +351,7 @@ def analysis_xlsx(*, scope: str, summary: dict, breakdown_rows: list[dict], grou
         ws.add_chart(chart, f"G{start}")
 
     comparables_sheet(book, records)
+    cost_items_sheet(book, records)
     _records_sheet(book, records)
     return book.bytes()
 
@@ -384,6 +386,7 @@ def records_xlsx(records: list[Record], scope: str) -> bytes:
         book.table(ws, ["Ref"] + [c[0] for c in cols], [[r.id] + [getattr(r, f) for _, f in cols] for r in subset], fmts,
                    blank=BLANK)
     comparables_sheet(book, records)
+    cost_items_sheet(book, records)
     return book.bytes()
 
 
@@ -396,6 +399,24 @@ COMPARABLE_COLUMNS = [
     ("Size (m²)", "c:size_sqm", "#,##0.00"), ("Price per m²", "c:price_per_sqm", "#,##0"), ("Remarks", "c:notes", None),
     ("Currency", "currency", None),
 ]
+
+
+def cost_items_sheet(book, records: list[Record]) -> None:
+    """Every rate adopted (cost approach / DRC), one row per part of the building."""
+    rows = []
+    for r in records:
+        for i, c in enumerate(r.cost_items or [], start=1):
+            c = c or {}
+            rows.append([r.id, i, r.location or r.address, r.property_type, c.get("item"), c.get("area_sqm"),
+                         c.get("rate"), c.get("amount"), r.cost_per_sqm, r.record_date, r.currency])
+    if not rows:
+        return
+    ws = book.sheet("Rates adopted", "Rates adopted (cost approach / DRC)",
+                    "Each part of the building with its area, rate and amount; 'Construction cost / m²' is the "
+                    "floor-area-weighted rate of the building parts")
+    book.table(ws, ["Ref", "Line", "Location", "Property type", "Item / floor", "Area (m²)", "Rate per m²", "Amount",
+                    "Construction cost / m²", "Date of valuation", "Currency"], rows,
+               [None, "0", None, None, None, "#,##0.00", "#,##0", "#,##0", "#,##0", "yyyy-mm-dd", None], blank=BLANK)
 
 
 def comparables_sheet(book, records: list[Record]) -> None:

@@ -470,6 +470,109 @@ _NOT_BUILD_RATE = re.compile(r"interest|capitali[sz]|yield|depreciat|discount|ex
 _PER_SQM = r"(?:per\s*(?:sq\.?\s*(?:m|metre|meter)|m(?:2|²)|square\s*met(?:re|er))|/\s*(?:sq\.?\s*)?m(?:2|²)?\b|psm|/sqm)"
 
 
+_EXTERNAL_WORKS = re.compile(r"boundary|\bwalls?\b|fenc|\bgates?\b|external|landscap|paving|paved|driveway|"
+                             r"car ?park|\bland\b|site works|septic|borehole|soak ?away|drain|walkway|"
+                             r"security post|guard ?house|swimming pool|water tank|polytank", re.I)
+_BUILDING_PART = (r"(?:(?:ground|first|second|third|fourth|fifth|upper|lower|top|basement|mezzanine|attic)\s+"
+                  r"(?:floor|storey|level)|(?:main|principal)\s+(?:building|house|block)|boys'?\s*quarters?|"
+                  r"\bbq\b|out-?(?:building|house)|annex(?:e)?|garage|porch|terrace|balcon(?:y|ies)|"
+                  r"boundary wall|fence wall|external works|gate ?house|"
+                  r"(?:one|two|three|single|double|multi)[- ]stor(?:e)?y(?: building| house)?)")
+
+
+def _cell_number(cell: str | None) -> float | None:
+    if not cell:
+        return None
+    m = re.search(_NUM, cell.replace("GH¢", " ").replace("GHS", " "))
+    return _num(m.group(0)) if m else None
+
+
+def tidy_cost_items(items) -> list[dict]:
+    """Clean rates-adopted rows; work out a missing amount (area × rate)."""
+    out = []
+    for it in items or []:
+        it = dict(it or {})
+        row = {"item": (str(it.get("item")).strip()[:120] if it.get("item") else None),
+               "area_sqm": _f(it.get("area_sqm")), "rate": _f(it.get("rate")), "amount": _f(it.get("amount"))}
+        if not row["rate"] and row["amount"] and row["area_sqm"]:
+            row["rate"] = round(row["amount"] / row["area_sqm"], 2)
+        if not row["amount"] and row["rate"] and row["area_sqm"]:
+            row["amount"] = round(row["rate"] * row["area_sqm"], 2)
+        if row["rate"] or row["amount"]:
+            out.append(row)
+    return out
+
+
+def _f(v) -> float | None:
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def adopted_rate(items: list[dict]) -> float | None:
+    """Construction cost per m² from the rates adopted: the floor-area-weighted average of the
+    building's own rates (ground floor, first floor, boys' quarters ...); walls, fences and other
+    external works are left out unless they are all there is."""
+    rows = [r for r in (items or []) if r.get("rate")]
+    building = [r for r in rows if not _EXTERNAL_WORKS.search(r.get("item") or "")] or rows
+    if not building:
+        return None
+    if all(r.get("area_sqm") for r in building):
+        area = sum(r["area_sqm"] for r in building)
+        return round(sum(r["rate"] * r["area_sqm"] for r in building) / area, 2) if area else None
+    return round(sum(r["rate"] for r in building) / len(building), 2)
+
+
+def cost_items_from_text(text: str) -> list[dict]:
+    """Rates adopted per part of the building, from the cost approach / DRC computation:
+    a table (Item | Area (m²) | Rate (GH¢/m²) | Amount) or lines such as
+    'Ground floor: 120 m² @ GH¢ 8,000 per m²'."""
+    if not text:
+        return []
+    lines = text.splitlines()
+    for i, ln in enumerate(lines):
+        if "|" not in ln:
+            continue
+        cells = [c.strip().lower() for c in ln.split("|")]
+        rate_col = next((j for j, c in enumerate(cells) if re.match(r"rate\b", c) and not _NOT_BUILD_RATE.search(c)), None)
+        if rate_col is None:
+            continue
+        area_col = next((j for j, c in enumerate(cells) if j != rate_col and
+                         re.search(r"area|m²|m2|sq|size|gfa|qty|quantit", c)), None)
+        amount_col = next((j for j, c in enumerate(cells) if j not in (rate_col, area_col) and
+                           re.search(r"amount|cost|value|total|gh", c)), None)
+        item_col = next((j for j in range(len(cells)) if j not in (rate_col, area_col, amount_col)), None)
+        items = []
+        for row in lines[i + 1:i + 30]:
+            if "|" not in row:
+                break
+            parts = [c.strip() for c in row.split("|")]
+            if len(parts) <= rate_col:
+                continue
+            name = parts[item_col] if item_col is not None and item_col < len(parts) else ""
+            if re.search(r"(?i)\b(?:sub-?)?total\b|\bless\b|depreciat|\badd\b|obsolescence|land value", name):
+                continue
+            rate = _cell_number(parts[rate_col])
+            if not rate or rate < 50:
+                continue
+            items.append({"item": name or None,
+                          "area_sqm": _cell_number(parts[area_col]) if area_col is not None and area_col < len(parts) else None,
+                          "rate": rate,
+                          "amount": _cell_number(parts[amount_col]) if amount_col is not None and amount_col < len(parts) else None})
+        if items:
+            return tidy_cost_items(items)
+    pattern = re.compile(rf"(?i)({_BUILDING_PART})[^\n|]{{0,60}}?({_NUM})\s*(?:m²|m2|sq\.?\s*m(?:etres?|eters?)?|"
+                         rf"square met(?:re|er)s?)[^\n|]{{0,30}}?(?:@|\bat\b|\bx\b|×|\*|\bby\b|rate of)\s*"
+                         rf"(?:gh(?:s|¢|c)?|¢|ghana cedis)?\s*({_NUM})")
+    items = []
+    for m in pattern.finditer(text):
+        rate = _num(m.group(3))
+        if rate and rate >= 50:
+            items.append({"item": m.group(1).strip().capitalize(), "area_sqm": _num(m.group(2)), "rate": rate})
+    return tidy_cost_items(items)
+
+
 def construction_rate(text: str) -> float | None:
     """Construction cost per m², which reports state as the 'rate' / 'rate adopted' (cost approach / DRC),
     e.g. 'Rate adopted: GH¢ 4,500 per m²' or a table column 'Rate (GH¢/m²)'."""
@@ -673,11 +776,13 @@ def extract(text: str, default_currency: str = "GHS") -> dict:
         for key, labels in SECTION_LABELS.items():
             record[key] = record.get(key) or _labelled(text, labels)
         record["gps_coordinates"] = find_coordinates(text)
-        record["cost_per_sqm"] = construction_rate(text)   # the 'rate adopted' of a cost approach / DRC
+        record["cost_items"] = cost_items_from_text(text) or None
+        record["cost_per_sqm"] = adopted_rate(record["cost_items"] or []) or construction_rate(text)
     elif category == "cost":
         record["total_cost"], cur = _labelled_amount(text, ["total construction cost", "total cost", "contract sum", "estimated cost", "total"])
         record["cost_per_sqm"], c2 = _labelled_amount(text, ["cost per square met", "cost per sq", "cost/m", "rate per m", "per m2", "per m²"])
-        record["cost_per_sqm"] = record["cost_per_sqm"] or construction_rate(text)
+        record["cost_items"] = cost_items_from_text(text) or None
+        record["cost_per_sqm"] = record["cost_per_sqm"] or adopted_rate(record["cost_items"] or []) or construction_rate(text)
         cur = cur or c2
         breakdown = {}
         for key, labels in {

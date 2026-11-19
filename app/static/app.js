@@ -194,6 +194,7 @@ function locationBlockedNotice() {
     then sign in again.</div><button class="btn small" type="button">OK</button>`;
   box.querySelector("button").onclick = () => box.remove();
   document.body.appendChild(box);
+  setTimeout(() => box.remove(), 25000);    // don't keep covering buttons
 }
 const mapUrl = (lat, lng) => `https://www.google.com/maps?q=${lat},${lng}`;
 function mapLink(lat, lng, acc) {
@@ -698,6 +699,7 @@ function recordEditorHTML(rec, idx) {
     }
     let html = grid(fields);
     if (more) html += `<p class="sub-head">Also recorded</p>${grid(more)}`;
+    if (key === "valuation" || key === "cost") html += costItemsEditorHTML(rec.cost_items || []);
     if (key === "valuation") {
       html += comparablesEditorHTML(comps);
     }
@@ -715,6 +717,65 @@ function recordEditorHTML(rec, idx) {
     <div class="form-grid tab-foot"><label class="wide">Tags (comma separated)<input name="tags" value="${esc((rec.tags || []).join(", "))}"></label>
     <label class="wide">Notes<textarea name="notes" rows="2">${esc(rec.notes || "")}</textarea></label></div>
   </div>`;
+}
+
+/* Rates adopted (cost approach / DRC): one row per part of the building. */
+const COST_FIELDS = [["item", "Item / floor"], ["area_sqm", "Area m²", "num"], ["rate", "Rate per m²", "num"], ["amount", "Amount", "num"]];
+const EXTERNAL_WORKS = /boundary|\bwalls?\b|fenc|\bgates?\b|external|landscap|paving|paved|driveway|car ?park|\bland\b|site works|septic|borehole|soak ?away|drain|walkway|security post|guard ?house|swimming pool|water tank|polytank/i;
+let costRowSeq = 0;
+function costRowHTML(c = {}) {
+  const i = costRowSeq++;
+  return `<tr data-row="${i}">${COST_FIELDS.map(([k, , kind]) => `<td><input name="cst_${i}_${k}" value="${esc(kind === "num" ? withCommas(c[k]) : c[k] ?? "")}"${kind === "num" ? ` ${NUM_ATTR} data-kind="num"` : ' placeholder="e.g. Ground floor"'} aria-label="${k}"></td>`).join("")}
+    <td><button type="button" class="btn small danger cost-del" title="Remove line">✕</button></td></tr>`;
+}
+function costItemsEditorHTML(items) {
+  return `<p class="sub-head">Rates adopted (cost approach) (<span class="cost-count">${items.length}</span>)</p>
+    <div class="sheet-wrap comp-wrap"><table class="sheet cost-table"><thead><tr>${COST_FIELDS.map(([, l]) => `<th>${esc(l)}</th>`).join("")}<th></th></tr></thead>
+    <tbody>${items.map(costRowHTML).join("")}</tbody></table></div>
+    <button type="button" class="btn small cost-add">+ Add rate</button>
+    <span class="muted small">One line per part of the building as the report lists it. Construction cost / m² is the floor-area-weighted rate of the building parts (walls, fences and other external works are left out).</span>`;
+}
+function readCostRows(el) {
+  const rows = {};
+  $$(".cost-table input", el).forEach((inp) => {
+    const m = inp.name.match(/^cst_(\d+)_(\w+)$/);
+    if (!m || inp.value.trim() === "") return;
+    rows[m[1]] = rows[m[1]] || {};
+    rows[m[1]][m[2]] = inp.dataset.kind === "num" ? toNum(inp.value) : inp.value.trim();
+  });
+  return Object.keys(rows).sort((a, b) => a - b).map((k) => rows[k]).filter((r) => r.rate || r.amount);
+}
+function adoptedRate(items) {
+  const rows = items.map((r) => ({ ...r, rate: r.rate || (r.amount && r.area_sqm ? r.amount / r.area_sqm : null) })).filter((r) => r.rate);
+  const building = rows.filter((r) => !EXTERNAL_WORKS.test(r.item || ""));
+  const use = building.length ? building : rows;
+  if (!use.length) return null;
+  if (use.every((r) => r.area_sqm)) {
+    const area = use.reduce((s, r) => s + r.area_sqm, 0);
+    return area ? Math.round((use.reduce((s, r) => s + r.rate * r.area_sqm, 0) / area) * 100) / 100 : null;
+  }
+  return Math.round((use.reduce((s, r) => s + r.rate, 0) / use.length) * 100) / 100;
+}
+function initCostRows(el) {
+  const tbody = $(".cost-table tbody", el);
+  if (!tbody) return;
+  const update = () => {
+    $(".cost-count", el).textContent = $$("tr", tbody).length;
+    const rate = adoptedRate(readCostRows(el));
+    const box = $("[name=cost_per_sqm]", el);
+    if (box && rate) box.value = withCommas(rate);
+  };
+  $$("tr", tbody).forEach((tr) => {
+    $(".cost-del", tr).onclick = () => { tr.remove(); update(); };
+    $$("input", tr).forEach((inp) => inp.addEventListener("input", () => {
+      const get = (k) => toNum($(`[name$="_${k}"]`, tr).value);
+      const amount = $(`[name$="_amount"]`, tr);
+      if (inp.name.match(/_(area_sqm|rate)$/) && get("area_sqm") && get("rate") && !amount.dataset.typed) amount.value = withCommas(Math.round(get("area_sqm") * get("rate")));
+      if (inp === amount) amount.dataset.typed = "1";
+      update();
+    }));
+  });
+  $(".cost-count", el).textContent = $$("tr", tbody).length;
 }
 
 /* Comparables: an editable table (one row per comparable). */
@@ -767,11 +828,27 @@ function initRecordEditor(el, rec = {}) {
       $$(".comp-add, .comp-del", el).forEach((b) => (b.disabled = true));
     }
   }
+  const ctb = $(".cost-table tbody", el);
+  if (ctb) {
+    initCostRows(el);
+    $(".cost-add", el).onclick = () => { ctb.insertAdjacentHTML("beforeend", costRowHTML()); initCostRows(el); $("input", ctb.lastElementChild).focus(); };
+    if (el.closest("form") && $$("input, select, textarea", el).some((x) => x.disabled)) $$(".cost-add, .cost-del", el).forEach((b) => (b.disabled = true));
+  }
+  if (rec.suggested && Array.isArray(rec.suggested.cost_items) && ctb && !$(".cost-suggest", el)) {
+    const lines = rec.suggested.cost_items.map((c) => `${esc(c.item || "item")} ${c.rate ? fmt(c.rate) : "—"}`).join("; ");
+    ctb.closest(".sheet-wrap").insertAdjacentHTML("afterend", `<span class="suggest cost-suggest">New reading: <b>${lines}</b>
+      <button type="button" class="btn small use-new">Use these rates</button></span>`);
+    $(".cost-suggest .use-new", el).onclick = () => {
+      ctb.innerHTML = rec.suggested.cost_items.map(costRowHTML).join(""); initCostRows(el);
+      const r = adoptedRate(readCostRows(el)); if (r) $("[name=cost_per_sqm]", el).value = withCommas(r);
+      $(".cost-suggest", el).innerHTML = "Using the new rates ✓";
+    };
+  }
   markAutofilled(el, rec.autofilled);
   Object.entries(rec.suggested || {}).forEach(([field, value]) => {
     const c = $(`[name="${field}"]`, el);
     const label = c && c.closest("label");
-    if (!label || $(".suggest", label) || field === "comparables") return;
+    if (!label || $(".suggest", label) || field === "comparables" || field === "cost_items") return;
     const shown = Array.isArray(value) ? value.join(", ") : typeof value === "number" ? fmt(value, 2) : String(value);
     label.insertAdjacentHTML("beforeend", `<span class="suggest">New reading: <b>${esc(shown.length > 160 ? shown.slice(0, 160) + "…" : shown)}</b>
       <button type="button" class="btn small use-new">Use this</button></span>`);
@@ -873,6 +950,7 @@ function readRecordEditor(el, original) {
     const name = inp.name;
     if (!name) return;
     let v = inp.value.trim();
+    if (name.startsWith("cst_")) return;      // rates adopted: read below
     const cm = name.match(/^cmp_(\d+)_(\w+)$/);
     if (cm) {
       if (v === "") return;
@@ -894,6 +972,10 @@ function readRecordEditor(el, original) {
     const list = Object.keys(comps).sort((a, b) => a - b).map((k) => comps[k]);
     list.forEach((c) => { if (c.price && c.size_sqm && !c.price_per_sqm) c.price_per_sqm = Math.round((c.price / c.size_sqm) * 100) / 100; });
     rec.comparables = list.length ? list : null;
+  }
+  if ($(".cost-table", el)) {
+    const items = readCostRows(el);
+    rec.cost_items = items.length ? items : null;
   }
   if (!rec.currency) rec.currency = (state.health && state.health.default_currency) || "GHS";
   return rec;
@@ -1000,7 +1082,7 @@ async function openReview(id) {
   panel.scrollIntoView({ behavior: "smooth" });
 }
 
-const suggestCount = (draft) => (draft.records || []).reduce((n, x) => n + Object.keys(x.suggested || {}).filter((k) => k !== "comparables").length, 0);
+const suggestCount = (draft) => (draft.records || []).reduce((n, x) => n + Object.keys(x.suggested || {}).filter((k) => k !== "comparables" && !(k === "cost_per_sqm" && x.suggested.cost_items)).length, 0);
 
 /* Mark every field whose new value differs from the saved record, showing the saved value. */
 function markChanges(panel, saved) {
@@ -1017,7 +1099,7 @@ function markChanges(panel, saved) {
     if (!old) { el.insertAdjacentHTML("afterbegin", '<p class="was-hint">New record: not in the saved data</p>'); changed++; return; }
     $$("input[name], select[name], textarea[name]", el).forEach((inp) => {
       const name = inp.name;
-      if (name.startsWith("bd_") || name.startsWith("cmp_")) return;
+      if (name.startsWith("bd_") || name.startsWith("cmp_") || name.startsWith("cst_")) return;
       let now = inp.value;
       if (name === "tags") now = now.split(",").map((t) => t.trim()).filter(Boolean);
       const was = old[name];
@@ -1124,7 +1206,7 @@ $("#export-xlsx").addEventListener("click", () => evidenceExport("xlsx"));
 $("#export-docx").addEventListener("click", () => evidenceExport("docx"));
 
 /* ---------------- Gaps: count, highlight and fill empty fields ---------------- */
-const GAP_SKIP = /^(cmp_|bd_)/;
+const GAP_SKIP = /^(cmp_|bd_|cst_)/;
 function gapControls(scope) {
   // Notes and tags are optional extras, not gaps.
   return $$("input[name], select[name], textarea[name]", scope).filter((c) => !GAP_SKIP.test(c.name) && c.type !== "file"
@@ -1157,6 +1239,12 @@ function markAutofilled(el, reasons) {
   });
 }
 function setFieldValue(el, field, value) {
+  if (field === "cost_items") {
+    const tb = $(".cost-table tbody", el);
+    if (!tb || !Array.isArray(value)) return false;
+    tb.innerHTML = value.map(costRowHTML).join(""); initCostRows(el);
+    return true;
+  }
   if (field === "comparables") {
     const tbody = $(".comp-table tbody", el);
     if (!tbody || !Array.isArray(value)) return false;

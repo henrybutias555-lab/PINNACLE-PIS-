@@ -100,7 +100,16 @@ def _process(db: Session, report: Report, path: Path) -> Report:
         if rec.get("purpose"):
             from .reader import standard_purpose
             rec["purpose"] = standard_purpose(rec["purpose"])
-        # Construction cost per m² = the report's "rate" / "rate adopted".
+        # Construction cost per m² follows the rates adopted for each part of the building.
+        from_text = rules.cost_items_from_text(report.raw_text or text or "")
+        items = rules.tidy_cost_items(from_text or rec.get("cost_items") or [])
+        if items:
+            rec["cost_items"] = items
+            rate = rules.adopted_rate(items)
+            if rate and rec.get("cost_per_sqm") != rate:
+                parts = "; ".join(f"{(r.get('item') or 'item')} {r['rate']:,.0f}" for r in items[:6])
+                rec.setdefault("autofilled", {})["cost_per_sqm"] = f"from the rates adopted ({parts})"
+                rec["cost_per_sqm"] = rate
         if not rec.get("cost_per_sqm"):
             rate = rules.construction_rate(report.raw_text or text or "")
             if rate:

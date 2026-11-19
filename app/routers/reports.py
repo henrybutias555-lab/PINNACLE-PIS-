@@ -161,6 +161,13 @@ def _keep_saved_values(db: Session, report: Report) -> None:
         for field, value in old_values.items():
             if field in ("id", "report_id", "created_at", "updated_at", "category") or value in (None, "", [], {}):
                 continue
+            if field == "cost_items" and rec.get("cost_items"):
+                if not _same(rec["cost_items"], value):
+                    rec.setdefault("suggested", {})["cost_items"] = rec["cost_items"]
+                    rec.setdefault("suggested", {}).setdefault("cost_per_sqm", rec.get("cost_per_sqm"))
+                rec["cost_items"] = value
+                rec["cost_per_sqm"] = old_values.get("cost_per_sqm")
+                continue
             if field == "tags":
                 merged = list(dict.fromkeys([*(value or []), *(rec.get("tags") or [])]))
                 rec["tags"] = merged
