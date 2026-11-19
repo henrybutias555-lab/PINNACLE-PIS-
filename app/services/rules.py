@@ -186,6 +186,45 @@ def clean_gps_fields(rec: dict, text: str = "") -> bool:
     return True
 
 
+_RATING_TOPICS = {
+    "location_rating": r"\blocation\b",
+    "accessibility_rating": r"\baccessib|\baccess\b",
+    "state_of_repair": r"state of repair|\brepair\b|\bcondition\b",
+    "neighbourhood_rating": r"neighbou?rhood",
+    "overall_marketability": r"marketability",   # not "good and marketable title"
+}
+_GRADES = [("very good", "Very good"), ("excellent", "Excellent"), ("good", "Good"), ("fair", "Fair"),
+           ("poor", "Poor"), ("dilapidated", "Dilapidated")]
+
+
+def ratings_from_text(text: str) -> dict[str, str]:
+    """Grades written in the report next to each rating topic, e.g. 'State of repair | Very Good'.
+    A topic is only answered when the report gives it one grade (no guessing between two)."""
+    out: dict[str, str] = {}
+    if not text:
+        return out
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    for field, topic in _RATING_TOPICS.items():
+        found = set()
+        for i, ln in enumerate(lines):
+            if not re.search(topic, ln, re.I) or len(ln) > 300:
+                continue
+            # the grade may sit on the same line or the next (table cell / label on its own line)
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            only_grade = re.fullmatch(r"\W*(?:very good|excellent|good|fair|poor|dilapidated)\W*", nxt, re.I)
+            for chunk in (ln, nxt if only_grade else ""):
+                low = chunk.lower()
+                for word, grade in _GRADES:
+                    if re.search(rf"\b{word}\b", low):
+                        found.add(grade)
+                        low = re.sub(rf"\b{word}\b", " ", low)   # 'very good' is not also 'good'
+                if found and chunk is ln:
+                    break
+        if len(found) == 1:
+            out[field] = found.pop()
+    return out
+
+
 def find_gps(text: str) -> str | None:
     """Ghana Post GPS digital address, e.g. GA-183-8164."""
     labelled = _labelled(text, ["gps address", "digital address", "ghana post gps", "gps"])

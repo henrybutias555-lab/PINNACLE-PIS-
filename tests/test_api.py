@@ -1456,3 +1456,27 @@ def test_rerun_keeps_saved_values(client, admin, monkeypatch):
     assert rec["inspection_limitation"] == "Visual inspection only"
     assert set(rec["tags"]) == {"townhouse", "residential"}
     assert "legal_disclaimer" in rec["kept"]
+
+
+def test_report_grade_wins_over_reading(client, admin, monkeypatch):
+    from app.config import Settings
+    from app.services import llm
+    from app.services.rules import ratings_from_text
+
+    text = ("MARKETABILITY\nLocation | Very Good\nAccessibility | Good\nState of repair: Very good\n"
+            "Neighbourhood\nVery Good\nOverall marketability: Good\n")
+    assert ratings_from_text(text) == {"location_rating": "Very good", "accessibility_rating": "Good",
+                                       "state_of_repair": "Very good", "neighbourhood_rating": "Very good",
+                                       "overall_marketability": "Good"}
+    # a sentence giving two grades is not guessed
+    assert "location_rating" not in ratings_from_text("The location is good but the access road is poor.")
+
+    monkeypatch.setattr(Settings, "ai_enabled", property(lambda self: True))
+    monkeypatch.setattr(llm, "extract_report", lambda *a, **k: {"report_type": "valuation", "title": "G", "records": [{
+        "category": "valuation", "location": "Gradeville", "location_rating": "Good", "state_of_repair": "Good",
+        "accessibility_rating": "Good", "currency": "GHS"}]})
+    rep = client.post("/api/reports/upload?sync=true", headers=admin,
+                      files=[("files", ("g.txt", text.encode(), "text/plain"))]).json()[0]
+    rec = rep["draft"]["records"][0]
+    assert rec["location_rating"] == "Very good" and rec["state_of_repair"] == "Very good"
+    assert rec["accessibility_rating"] == "Good" and "location_rating" in rec["autofilled"]
