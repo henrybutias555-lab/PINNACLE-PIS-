@@ -125,14 +125,18 @@ def apply_changes(rec: Record, body: dict) -> None:
         data["comparables"] = merged.model_dump(mode="json")["comparables"]
     for key in body:
         setattr(rec, key, data[key])
-    if {"size_sqm", "capital_value"} & set(body) and "value_per_sqm" not in body:
-        rec.value_per_sqm = None
-    if {"size_sqm", "annual_rent"} & set(body) and "rent_per_sqm" not in body:
-        rec.rent_per_sqm = None
-    if {"size_sqm", "total_cost"} & set(body) and "cost_per_sqm" not in body:
-        rec.cost_per_sqm = None
-    if {"capital_value", "annual_rent"} & set(body) and "yield_pct" not in body:
-        rec.yield_pct = None
+
+    def same(a, b):
+        return a == b or (isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) < 0.005)
+
+    # A calculated figure is recalculated when one of its inputs changed, unless the user typed a new
+    # value for it. (Forms send every field back, so an unchanged old figure must not block this.)
+    for derived, inputs in (("value_per_sqm", ("size_sqm", "capital_value")), ("rent_per_sqm", ("size_sqm", "annual_rent")),
+                            ("cost_per_sqm", ("size_sqm", "total_cost")), ("yield_pct", ("capital_value", "annual_rent"))):
+        inputs_changed = any(k in body and not same(current.get(k), data.get(k)) for k in inputs)
+        user_set_it = derived in body and not same(current.get(derived), data.get(derived))
+        if inputs_changed and not user_set_it:
+            setattr(rec, derived, None)
     if "basis_of_value" in body and rec.basis_of_value:
         from ..services.rules import normalise_basis
         rec.basis_of_value = normalise_basis(rec.basis_of_value)

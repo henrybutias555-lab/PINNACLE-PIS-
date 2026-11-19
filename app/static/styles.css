@@ -220,3 +220,7 @@ fieldset legend { font-weight: 600; color: var(--text); }
 .show-gaps label.gap { color: var(--warn); }
 label.autofilled input, label.autofilled select, label.autofilled textarea { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
 .auto-hint { display: block; font-size: .72rem; color: var(--brand); font-style: italic; overflow-wrap: anywhere; }
+
+.value-warn { display: block; font-size: .78rem; color: var(--danger); font-weight: 600; }
+#dash-warning ul, #intel-warning ul { margin: .4rem 0 0; padding-left: 1.2rem; }
+#dash-warning li, #intel-warning li { margin: .25rem 0; }

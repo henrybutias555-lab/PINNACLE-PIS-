@@ -44,7 +44,7 @@ CURRENCY = r"(?:GH[S¢₵]|GHC|₵|USD|US\$|\$|NGN|₦|GBP|£|EUR|€)"
 _CUR_BEFORE = r"(?:gh\s?[s¢₵c]|ghana\s+cedis?|₵|¢|us\s?\$|usd|\$|ngn|₦|gbp|£|eur|€)"
 # ... or after it ("2,300,000.00 Ghana Cedis", "180,000 US Dollars")
 _CUR_AFTER = r"(?:ghana\s+cedis|cedis|gh\s?[s¢₵c]\b|us\s+dollars|u\.?s\.?\s+dollars|dollars|usd\b)"
-_NUM = r"\d{1,3}(?:(?:,\s?|[\u00a0\u202f\u2009 ])\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
+_NUM = r"\d{1,3}(?:(?:,\s?|[\u00a0\u202f\u2009 '’′])\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
 _SCALE = r"(?:million|mn|m|bn|billion|k)\b"
 _MONEY_RE = re.compile(
     rf"(?P<cur1>{_CUR_BEFORE})\s*(?P<n1>{_NUM})\s*(?P<s1>{_SCALE})?"
@@ -58,7 +58,7 @@ _MONTHS = "January February March April May June July August September October N
 
 def _num(raw: str, scale: str | None = None) -> float | None:
     try:
-        value = float(re.sub(r"[,\s\u00a0\u202f\u2009]", "", raw))
+        value = float(re.sub(r"[,\s\u00a0\u202f\u2009'’′]", "", raw))
     except ValueError:
         return None
     scale = (scale or "").lower()
@@ -335,22 +335,87 @@ def _money_in(window: str, minimum: float = 100) -> tuple[float | None, str | No
     return None, None
 
 
+_WORD_NUMS = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fourty": 40,
+    "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+}
+_WORD_SCALES = {"hundred": 100, "thousand": 1_000, "million": 1_000_000, "billion": 1_000_000_000}
+_WORDS_RE = re.compile(
+    r"\b((?:(?:" + "|".join(list(_WORD_NUMS) + list(_WORD_SCALES)) + r")[\s,-]*(?:and\s+)?)+)"
+    r"(?:ghana\s+)?(?:cedis?|ghana\s+cedis|us\s+dollars|dollars)", re.I)
+
+
+def words_to_number(phrase: str) -> float | None:
+    """'Two Million, Three Hundred Thousand' -> 2300000."""
+    total, current, seen = 0, 0, False
+    for word in re.findall(r"[a-z]+", phrase.lower()):
+        if word == "and":
+            continue
+        if word in _WORD_NUMS:
+            current += _WORD_NUMS[word]
+            seen = True
+        elif word == "hundred":
+            current = (current or 1) * 100
+            seen = True
+        elif word in _WORD_SCALES:
+            total += (current or 1) * _WORD_SCALES[word]
+            current = 0
+            seen = True
+        else:
+            return None
+    return float(total + current) if seen else None
+
+
+def _amount_in_words(window: str) -> float | None:
+    m = _WORDS_RE.search(window)
+    if not m:
+        return None
+    value = words_to_number(m.group(1))
+    return value if value and value >= 100 else None
+
+
 def _labelled_amount(text: str, labels: list[str]) -> tuple[float | None, str | None]:
-    """Amount stated after a label, looking to the end of the sentence / next line."""
+    """Amount stated after a label, looking to the end of the sentence / next lines.
+    A figure written in words ("Two Million ... Ghana Cedis") is used to check the digits."""
+    # A number broken across lines ("GH¢2,300,\n000.00") is joined first.
+    text = re.sub(r"(\d[,.'’]?)\s*\n\s*(\d{3}\b)", r"\1\2", text)
     for label in labels:
         for m in re.finditer(rf"(?i)(?<![a-z]){label}(?![a-z])", text):
             rest = text[m.end():]
             line, _, following = rest.partition("\n")
             stop = re.search(r"\.\s+[A-Z]", line)  # end of the sentence
-            value, cur = _money_in(line[:stop.start() + 1] if stop else line)
-            if value is None:
+            first = line[:stop.start() + 1] if stop else line
+            value, cur = _european(first) or _money_in(first)
+            nxt = following.split("\n", 1)[0]
+            if value is None and re.match(rf"\s*(?:{_CUR_BEFORE}|\d)", nxt, re.I):
                 # "Market Value:" with the figure on the next line
-                nxt = following.split("\n", 1)[0]
-                if re.match(rf"\s*(?:{_CUR_BEFORE}|\d)", nxt, re.I):
-                    value, cur = _money_in(nxt)
+                value, cur = _european(nxt) or _money_in(nxt)
+            # "Market Value (GH¢'000)" / "in thousands": the figure is in thousands
+            if value is not None and re.search(r"['’]000|\bin\s+thousands?\b|\(000\)", line[:60], re.I) \
+                    and value < 1_000_000:
+                value *= 1000
+            # words on the label's own line, or the next line when that isn't another heading
+            next_is_heading = ":" in nxt[:80] or "|" in nxt
+            words = _amount_in_words(line) or (None if next_is_heading else _amount_in_words(nxt))
+            if words and (value is None or abs(words - value) / words > 0.01):
+                # trust the words when the digits are missing or clearly cut short (e.g. 2,300 for 2,300,000)
+                if value is None or value < words / 50 or value > words * 50:
+                    value = words
+                    cur = cur or ("USD" if re.search(r"dollar", f"{line} {nxt}", re.I) else "GHS")
             if value is not None:
                 return value, cur
     return None, None
+
+
+def _european(window: str):
+    """'GH¢2.300.000,00' -> (2300000, 'GHS'); None if the text isn't in that style."""
+    m = re.search(rf"(?P<cur>{_CUR_BEFORE})?\s*(?P<n>\d{{1,3}}(?:\.\d{{3}}){{2,}})(?:,\d{{1,2}})?(?!\d)", window, re.I)
+    if not m:
+        return None
+    value = float(m.group("n").replace(".", ""))
+    return value, (_currency_code(m.group("cur")) if m.group("cur") else None)
 
 
 def find_date(text: str) -> date | None:

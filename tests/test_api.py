@@ -1034,3 +1034,50 @@ def test_unexpected_errors_are_explained(client, admin, monkeypatch):
     with TestClient(app, raise_server_exceptions=False) as c:
         r = c.post("/api/records", headers=admin, json={"category": "valuation"})
     assert r.status_code == 500 and "nothing was saved" in r.json()["detail"]
+
+
+def test_value_opinion_formats_and_words():
+    from app.services import rules
+
+    assert rules.words_to_number("Two Million, Three Hundred Thousand") == 2300000
+    assert rules.words_to_number("Six Hundred and Fifty Thousand Five Hundred") == 650500
+    head = "VALUATION REPORT\nGross floor area: 206.55 sq m\nBasis of value: Market Value and Forced Sale Value\n"
+    for text in ("Market Value: GH¢2,300,\n000.00",                       # number split over two lines
+                 "Market Value: GH¢ 2,300’000.00",                       # apostrophe separators
+                 "Market Value: GH¢2.300.000,00",                        # dot separators
+                 "Market Value (GH¢'000) | 2,300",                       # figure given in thousands
+                 "MARKET VALUE\nTwo Million, Three Hundred Thousand Ghana Cedis (GH¢2,300,000.00)",
+                 "Market Value: GH¢2,300 (Two Million, Three Hundred Thousand Ghana Cedis)"):  # digits cut short
+        r = rules.extract(head + text)["records"][0]
+        assert r["capital_value"] == 2300000, (text, r.get("capital_value"))
+        assert r.get("forced_sale_value") is None, text
+
+
+def test_dashboard_leaves_out_misread_values(client, admin):
+    bad = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Zz Test Area",
+                                                         "size_sqm": 206.55, "capital_value": 2300}).json()["id"]
+    good = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Zz Test Area",
+                                                          "size_sqm": 200, "capital_value": 2000000}).json()["id"]
+    s = client.get("/api/analytics/summary?location=Zz Test Area", headers=admin).json()
+    assert [x["id"] for x in s["suspect_values"]] == [bad]
+    assert s["metrics"]["capital_value"]["mean"] == 2000000          # the 2,300 is not averaged in
+    assert s["metrics"]["value_per_sqm"]["mean"] == 10000
+    assert s["metrics"]["capital_value"]["label"] == "Value opinion"
+    client.patch(f"/api/records/{bad}", headers=admin, json={"capital_value": 2300000})  # corrected
+    s = client.get("/api/analytics/summary?location=Zz Test Area", headers=admin).json()
+    assert s["suspect_values"] == [] and s["metrics"]["capital_value"]["count"] == 2
+    assert client.get(f"/api/records/{good}", headers=admin).status_code == 200
+
+
+def test_form_save_recalculates_rates(client, admin):
+    """Forms send every field back; an old value-per-m² must not survive a corrected market value."""
+    rid = client.post("/api/records", headers=admin, json={"category": "valuation", "location": "Recalc",
+                                                        "size_sqm": 206.55, "capital_value": 2300}).json()["id"]
+    rec = client.get(f"/api/records/{rid}", headers=admin).json()
+    assert rec["value_per_sqm"] == 11.14
+    body = {k: v for k, v in rec.items() if k not in ("id", "report_id", "created_at", "updated_at")}
+    body["capital_value"] = 2300000          # corrected; value_per_sqm still 11.14 in the form
+    rec = client.patch(f"/api/records/{rid}", headers=admin, json=body).json()
+    assert rec["value_per_sqm"] == 11135.32
+    body = dict(body, capital_value=2300000, value_per_sqm=12000)   # a figure the user typed on purpose
+    assert client.patch(f"/api/records/{rid}", headers=admin, json=body).json()["value_per_sqm"] == 12000
