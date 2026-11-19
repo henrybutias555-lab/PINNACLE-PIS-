@@ -327,10 +327,9 @@ function filterFormHTML(withSearch = true) {
 
 /* ---------------- Dashboard ---------------- */
 async function loadDashboard() {
-  const [s, reports, t] = await Promise.all([
+  const [s, reports] = await Promise.all([
     api("/api/analytics/summary"),
     api("/api/reports?limit=8"),
-    api("/api/analytics/trends-by?metric=capital_value&group=property_type&interval=quarter&top=4"),
   ]);
   const cur = s.currency || (state.health && state.health.default_currency) || "";
   const m = s.metrics;
@@ -349,11 +348,6 @@ async function loadDashboard() {
   const locs = Object.entries(s.top_locations);
   $("#dash-locations").innerHTML = locs.length ? table(["Location", "Records"], locs.map(([k, v]) => [esc(k), { v: fmt(v), num: true }])) : '<p class="muted">No records yet.</p>';
   $("#dash-reports").innerHTML = reports.length ? table(["Report", "Type", "Status"], reports.map((r) => [esc(r.title || r.filename), esc(r.report_type || "—"), statusPill(r.status)])) : '<p class="muted">No reports uploaded yet.</p>';
-  const tp = [...new Set(t.lines.flatMap((l) => l.series.map((p) => p.period)))].sort();
-  lineChart("dash-chart", tp, t.lines.map((l) => {
-    const m = Object.fromEntries(l.series.map((p) => [p.period, p.mean]));
-    return { label: `${l.name.charAt(0).toUpperCase() + l.name.slice(1)} (${t.currency || cur})`, data: tp.map((p) => m[p] ?? null) };
-  }));
   showSuspects($("#dash-warning"), s.suspect_values, cur);
 }
 /* Valuations whose figure looks mis-read (e.g. 2,300 for 2,300,000): listed, kept out of averages. */
