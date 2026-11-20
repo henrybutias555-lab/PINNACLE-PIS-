@@ -516,7 +516,7 @@ function table(headers, rows, opts = {}) {
 }
 
 /* ---------------- Charts ---------------- */
-const PALETTE = ["#0f4c5c", "#c9a227", "#5b8e7d", "#a4508b"];
+const PALETTE = ["#0a2a66", "#cfa04a", "#3f7fd1", "#7a8b99"];   // Pinnacle navy & gold first
 function lineChart(id, labels, datasets, opts = {}) {
   if (!window.Chart) return;
   if (state.charts[id]) state.charts[id].destroy();

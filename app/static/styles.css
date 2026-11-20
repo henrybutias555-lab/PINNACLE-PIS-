@@ -4,9 +4,10 @@
   --text: #1c2430;
   --muted: #64707f;
   --border: #dde2ea;
-  --brand: #0f4c5c;
-  --brand-2: #c9a227;
-  --accent: #e8f1f3;
+  --brand: #0a2a66;          /* Pinnacle navy */
+  --brand-2: #cfa04a;        /* Pinnacle gold */
+  --nav: #0a2a66;
+  --accent: #e9eef8;
   --danger: #b42318;
   --ok: #157f3b;
   --warn: #9a6700;
@@ -18,7 +19,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #11161d; --surface: #1a212b; --text: #e6ebf1; --muted: #98a3b1; --border: #2c3542;
-    --brand: #5fb3c7; --accent: #1f2d36; color-scheme: dark;
+    --brand: #7ea6f0; --accent: #1b2537; --nav: #071d47; color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
@@ -35,7 +36,12 @@ h3 { font-size: 1rem; }
 .row.gap { gap: .5rem; }
 
 /* Login */
-.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.login-wrap { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1rem; padding: 24px 16px;
+  background: linear-gradient(180deg, rgba(5, 20, 55, .55), rgba(5, 20, 55, .78)),
+    url("/static/img/login-bg.jpg") center / cover no-repeat fixed; }
+.login-logo { width: min(320px, 78vw); height: auto; filter: drop-shadow(0 2px 6px rgba(0, 0, 0, .45)); }
+.login-wrap .login-card { box-shadow: 0 12px 40px rgba(0, 0, 0, .35); border-top: 4px solid var(--brand-2); }
 .login-card { width: min(380px, 100%); display: flex; flex-direction: column; gap: .8rem; text-align: center; }
 .login-card label { text-align: left; }
 .brand-mark { display: inline-grid; place-items: center; width: 56px; height: 56px; margin: 0 auto; border-radius: 12px;
@@ -44,7 +50,7 @@ h3 { font-size: 1rem; }
 
 /* Layout */
 .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
-.sidebar { background: var(--brand); color: #fff; padding: 1rem; display: flex; flex-direction: column; gap: 1rem;
+.sidebar { background: var(--nav, #0a2a66); color: #fff; padding: 1rem; display: flex; flex-direction: column; gap: 1rem;
   position: sticky; top: 0; height: 100vh; }
 .brand { display: flex; gap: .6rem; align-items: center; }
 .brand small { display: block; opacity: .8; }
@@ -297,7 +303,7 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 .ask-box .rs-ask-form input { flex: 1; min-width: 0; }
 .ask-log { max-height: 40vh; overflow: auto; }
 .ask-q { margin: .6rem 0 .2rem; font-weight: 600; }
-.ask-a { background: color-mix(in srgb, var(--brand, #0f4c5c) 7%, transparent); border-radius: 8px; padding: .5rem .7rem; }
+.ask-a { background: color-mix(in srgb, var(--brand, #0a2a66) 7%, transparent); border-radius: 8px; padding: .5rem .7rem; }
 .ask-a.not-found { background: color-mix(in srgb, var(--muted) 10%, transparent); }
 .ask-a p { margin: .2rem 0; }
 .ask-a blockquote { margin: .35rem 0; padding: .3rem .6rem; border-left: 3px solid var(--brand-2, #c9a227); cursor: pointer; font-style: italic; }
@@ -308,7 +314,7 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 #discussion-list { display: grid; gap: .4rem; margin-top: .4rem; }
 .discussion-item { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; text-align: left; width: 100%;
   background: none; border: 1px solid var(--border); border-radius: 8px; padding: .5rem .7rem; cursor: pointer; color: inherit; font: inherit; }
-.discussion-item:hover { border-color: var(--brand, #0f4c5c); }
+.discussion-item:hover { border-color: var(--brand, #0a2a66); }
 .pick-list { display: grid; gap: .3rem; max-height: 50vh; overflow: auto; margin: .5rem 0; }
 .pick { flex-direction: row; align-items: center; gap: .5rem; color: var(--text); font-size: .9rem; }
 .chat { display: flex; flex-direction: column; height: min(80vh, 760px); }
@@ -324,7 +330,7 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 .msg.me { align-self: flex-end; align-items: flex-end; }
 .msg.ai { align-self: flex-start; }
 .bubble { padding: .55rem .8rem; border-radius: 14px; line-height: 1.45; overflow-wrap: anywhere; }
-.msg.me .bubble { background: var(--brand, #0f4c5c); color: #fff; border-bottom-right-radius: 4px; }
+.msg.me .bubble { background: var(--brand, #0a2a66); color: #fff; border-bottom-right-radius: 4px; }
 .msg.ai .bubble { background: color-mix(in srgb, var(--muted) 12%, var(--surface, #fff)); border-bottom-left-radius: 4px; }
 .msg-at { font-size: .7rem; color: var(--muted); margin: .15rem .3rem 0; }
 .chat-li { display: block; padding-left: .3rem; }
@@ -344,7 +350,7 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 .pdf-page { display: block; width: 100%; height: auto; margin: 0 auto .5rem; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .pdf-count { margin: 0 0 .3rem; }
 .doc-html { background: #fff; color: #1c2430; padding: 1rem 1.2rem; border-radius: 6px; line-height: 1.55; }
-.doc-html h2, .doc-html h3, .doc-html h4, .doc-html h5 { color: #0f4c5c; margin: 1rem 0 .4rem; }
+.doc-html h2, .doc-html h3, .doc-html h4, .doc-html h5 { color: #0a2a66; margin: 1rem 0 .4rem; }
 .doc-html .doc-table { border-collapse: collapse; width: 100%; font-size: .85rem; }
 .doc-html .doc-table th, .doc-html .doc-table td { border: 1px solid #cfd6dd; padding: .3rem .45rem; vertical-align: top; color: #1c2430; }
 .doc-html .doc-table th { background: #eef2f5; }
@@ -362,3 +368,12 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 
 .tag-btn { border: 0; cursor: pointer; font: inherit; }
 .tag-btn:hover { filter: brightness(.95); text-decoration: underline; }
+
+/* Pinnacle branding */
+.brand-logo { width: 44px; height: auto; flex: none; }
+.dash-banner { height: 190px; border-radius: var(--radius); margin-bottom: 1rem;
+  background: url("/static/img/dashboard-banner.jpg") center 30% / cover no-repeat;
+  box-shadow: inset 0 -60px 60px -40px rgba(5, 20, 55, .55); border-bottom: 3px solid var(--brand-2); }
+@media (max-width: 700px) { .dash-banner { height: 120px; background-position: 15% 30%; } }
+@media (prefers-reduced-motion: reduce) { .login-wrap { background-attachment: scroll; } }
+@media (max-width: 700px) { .login-wrap { background-attachment: scroll; } }

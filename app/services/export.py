@@ -196,8 +196,8 @@ class _Book:
         self.wb = Workbook()
         self.wb.remove(self.wb.active)
         self.head_font = Font(bold=True, color="FFFFFF")
-        self.head_fill = PatternFill("solid", fgColor="0F4C5C")
-        self.title_font = Font(bold=True, size=14, color="0F4C5C")
+        self.head_fill = PatternFill("solid", fgColor="0A2A66")       # Pinnacle navy
+        self.title_font = Font(bold=True, size=14, color="0A2A66")
         self.wrap = Alignment(wrap_text=True, vertical="top")
 
     def sheet(self, name: str, title: str | None = None, subtitle: str | None = None):
