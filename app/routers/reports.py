@@ -55,7 +55,9 @@ async def upload(
     for f in files:
         ftype = file_type_for(f.filename or "")
         if ftype is None:
-            raise HTTPException(415, f"Unsupported file type: {f.filename}. Use PDF, DOCX, TXT or an image.")
+            hint = " Save it as .xlsx (Excel: File > Save As) and upload again." if (f.filename or "").lower().endswith(".xls") else ""
+            raise HTTPException(415, f"Unsupported file type: {f.filename}. Use PDF, Word (.docx), Excel (.xlsx), "
+                                     f"text or an image.{hint}")
         data = await f.read()
         if len(data) > limit:
             raise HTTPException(413, f"{f.filename} exceeds the {settings.max_upload_mb:g} MB upload limit")

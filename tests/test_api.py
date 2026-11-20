@@ -2024,3 +2024,38 @@ def test_research_authors_and_tags(client, admin, tmp_path, monkeypatch):
     e = client.post("/api/research", headers=admin, files={"file": ("land.txt", txt, "text/plain")}).json()
     assert e["author"] == "Ama Owusu, Kofi Asante · Land Use Policy" and e["year"] == "2019"
     assert e["tags"] == ["land tenure", "customary land"]
+
+
+def test_excel_reports_upload_and_review(client, admin):
+    import io as _io
+
+    import openpyxl
+
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Valuation"
+    for row in [["VALUATION REPORT"], ["Location", "East Legon, Accra"], ["Client", "GCB Bank PLC"],
+                ["Purpose", "Mortgage"], ["Date of valuation", "2025-03-15"], ["Basis of value", "Market Value"],
+                ["Gross floor area", "320 sq m"], ["Market value", 3200000], ["Forced sale value", 2240000],
+                [], ["COST APPROACH"], ["Item", "Area (m²)", "Rate (GH¢/m²)", "Amount (GH¢)"],
+                ["Ground floor", 160, 8000, 1280000], ["First floor", 160, 8000, 1280000], ["Compound", 300, 400, 120000]]:
+        ws.append(row)
+    buf = _io.BytesIO(); wb.save(buf)
+    rep = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", ("valuation.xlsx", buf.getvalue(),
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))]).json()[0]
+    assert rep["file_type"] == "xlsx" and rep["status"] == "extracted", rep
+    rec = rep["draft"]["records"][0]
+    assert rec["capital_value"] == 3_200_000 and rec["forced_sale_value"] == 2_240_000
+    assert rec["client"] == "GCB Bank PLC" and rec["purpose"] == "Mortgage"
+    assert rec["cost_per_sqm"] == 8000 and [c["item"] for c in rec["cost_items"]] == ["Ground floor", "First floor", "Compound"]
+
+    wb2 = openpyxl.Workbook(); ws2 = wb2.active
+    for row in [["CONSTRUCTION COST ESTIMATE"], ["Project", "Office block"], ["Location", "Airport City"],
+                ["Gross floor area", "1,500 sq m"], ["Total construction cost", 12000000]]:
+        ws2.append(row)
+    b2 = _io.BytesIO(); wb2.save(b2)
+    rep2 = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", ("estimate.xlsx", b2.getvalue(),
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))]).json()[0]
+    rec2 = rep2["draft"]["records"][0]
+    assert rec2["category"] == "cost" and rec2["total_cost"] == 12_000_000 and rec2["cost_per_sqm"] == 8000
+
+    old = client.post("/api/reports/upload?sync=true", headers=admin, files=[("files", ("old.xls", b"x", "application/vnd.ms-excel"))])
+    assert old.status_code == 415 and "Save it as .xlsx" in old.json()["detail"]
