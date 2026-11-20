@@ -7,7 +7,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-SUPPORTED = {".pdf": "pdf", ".docx": "docx", ".txt": "txt", ".md": "txt", ".csv": "txt",
+SUPPORTED = {".pdf": "pdf", ".docx": "docx", ".xlsx": "xlsx", ".xlsm": "xlsx", ".txt": "txt", ".md": "txt", ".csv": "txt",
              ".png": "image", ".jpg": "image", ".jpeg": "image", ".tif": "image", ".tiff": "image",
              ".webp": "image"}
 
@@ -24,11 +24,71 @@ def extract_text(path: Path, file_type: str) -> str:
         return text
     if file_type == "docx":
         return _docx_text(path)
+    if file_type == "xlsx":
+        return _xlsx_text(path)
     if file_type == "txt":
         return path.read_text(encoding="utf-8", errors="replace")
     if file_type == "image":
         return _ocr_image(path) or ""
     return ""
+
+
+MAX_XLSX_ROWS = 5000
+
+
+def _cell_text(value) -> str:
+    """A cell as a person reads it: whole numbers without '.0', dates as YYYY-MM-DD."""
+    import datetime as _dt
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return f"{int(value):,}" if abs(value) >= 1000 else str(int(value))
+    if isinstance(value, (int,)) and not isinstance(value, bool):
+        return f"{value:,}" if abs(value) >= 1000 else str(value)
+    if isinstance(value, float):
+        return f"{value:,.2f}" if abs(value) >= 1000 else str(round(value, 4))
+    if isinstance(value, (_dt.datetime, _dt.date)):
+        return value.strftime("%Y-%m-%d")
+    return " ".join(str(value).split())
+
+
+def _xlsx_text(path: Path) -> str:
+    """Each sheet as '## Sheet' then its rows, cells joined with ' | ' (like Word tables), so a valuation
+    schedule, bill of quantities or cost estimate in Excel reads like any other report."""
+    import openpyxl
+
+    try:
+        wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+    except Exception as exc:
+        log.warning("Excel text extraction failed for %s: %s", path, exc)
+        return ""
+    lines: list[str] = []
+    rows_read = 0
+    for ws in wb.worksheets:
+        if getattr(ws, "sheet_state", "visible") != "visible":
+            continue
+        sheet_lines = []
+        for row in ws.iter_rows(values_only=True):
+            cells = [_cell_text(c) for c in row]
+            while cells and not cells[-1]:
+                cells.pop()
+            if not any(cells):
+                continue
+            filled = [c for c in cells if c]
+            # a label and its value ('Market value | 2,300,000') read as 'Market value: 2,300,000'
+            sheet_lines.append(f"{filled[0]}: {filled[1]}" if len(filled) == 2 and not filled[0][-1:].isdigit()
+                               else " | ".join(cells))
+            rows_read += 1
+            if rows_read >= MAX_XLSX_ROWS:
+                break
+        if sheet_lines:
+            lines.append(f"## {ws.title}")
+            lines += sheet_lines
+        if rows_read >= MAX_XLSX_ROWS:
+            lines.append(f"(only the first {MAX_XLSX_ROWS:,} rows were read)")
+            break
+    wb.close()
+    return "\n".join(lines)
 
 
 def _pdf_text(path: Path) -> str:

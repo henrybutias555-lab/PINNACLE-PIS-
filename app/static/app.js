@@ -280,7 +280,7 @@ function startApp() {
   pill.title = check ? `${check.model || ""}: ${check.detail || ""}` : "Reports are read by the built-in reader; add GEMINI_API_KEY to add Gemini";
   $$("[data-min-role]").forEach((el) => el.classList.toggle("hidden", !can(el.dataset.minRole)));
   if (state.health && state.health.max_upload_mb) {
-    $("#upload-hint").textContent = `PDF, Word (.docx), text or scanned images — single or bulk · up to ${state.health.max_upload_mb} MB per file`;
+    $("#upload-hint").textContent = `PDF, Word (.docx), Excel (.xlsx), text or scanned images — single or bulk · up to ${state.health.max_upload_mb} MB per file`;
   }
   loadFacets();
   route();
