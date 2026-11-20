@@ -1670,16 +1670,47 @@ function presence(u) {
   return `<span class="presence muted" title="${esc(new Date(out ? u.signed_out_at : u.last_seen_at).toLocaleString())}"><span class="dot"></span>${out ? `Signed out ${ago(u.signed_out_at)}` : `Last active ${ago(u.last_seen_at)}`}</span>`;
 }
 
+/* Users: most recent first by default, so whoever just signed in (or was just added) is at the top. */
+const lastActive = (u) => Math.max(...[u.last_seen_at, u.signed_out_at].filter(Boolean).map((t) => new Date(t).getTime()), 0);
+function sortUsers(users, how) {
+  const by = {
+    recent: (a, b) => (b.online - a.online) || (lastActive(b) - lastActive(a)) || (new Date(b.created_at) - new Date(a.created_at)),
+    least: (a, b) => (lastActive(a) - lastActive(b)) || (new Date(a.created_at) - new Date(b.created_at)),
+    newest: (a, b) => new Date(b.created_at) - new Date(a.created_at),
+    oldest: (a, b) => new Date(a.created_at) - new Date(b.created_at),
+    name: (a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email),
+  }[how] || (() => 0);
+  return [...users].sort(by);
+}
+const joined = (iso) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+let adminUsers = [];
+function savedUserSort() { try { return localStorage.getItem("pis_users_sort") || "recent"; } catch (_) { return "recent"; } }
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.id === "users-sort") {
+    try { localStorage.setItem("pis_users_sort", e.target.value); } catch (_) {}
+    renderUsers();
+  }
+});
+
 async function loadAdmin() {
   const [users, log] = await Promise.all([api("/api/users"), api("/api/activity?limit=300")]);
+  adminUsers = users;
   const online = users.filter((u) => u.online);
   $("#online-now").innerHTML = online.length
     ? `<span class="dot on"></span><b>${online.length} online now:</b> ${online.map((u) => esc(u.full_name || u.email) + (state.user && u.id === state.user.id ? " (you)" : "")).join(", ")}`
     : '<span class="dot"></span>Nobody is online right now.';
-  $("#users-table").innerHTML = table(["Name", "Email", "Role", "Status", "Location at last sign-in", "Account", ""], users.map((u) => [esc(u.full_name), esc(u.email),
+  renderUsers();
+  $("#activity-table").innerHTML = table(["When", "User", "Action", "Target", "Detail", "IP", "Device location"], log.map((a) => [new Date(a.created_at).toLocaleString(), esc(a.user_email || "—"), esc(a.action), esc(a.target || ""), esc(a.detail || ""), ipLink(a.ip), mapLink(a.latitude, a.longitude, a.accuracy_m)]));
+}
+function renderUsers() {
+  const sel = $("#users-sort");
+  if (sel && !sel.dataset.ready) { sel.value = savedUserSort(); sel.dataset.ready = "1"; }
+  const users = sortUsers(adminUsers, sel ? sel.value : "recent");
+  $("#users-table").innerHTML = table(["Name", "Email", "Role", "Status", "Location at last sign-in", "Joined", "Account", ""], users.map((u) => [esc(u.full_name), esc(u.email),
     `<select class="role-sel" data-id="${u.id}">${Object.entries(ROLE_NAMES).map(([k, l]) => `<option value="${k}" ${k === u.role ? "selected" : ""}>${l}</option>`).join("")}</select>`,
     presence(u),
     locationCell(u),
+    `<span class="small">${joined(u.created_at)}</span>${Date.now() - new Date(u.created_at) < 7 * 86400000 ? ' <span class="pill new-pill">new</span>' : ""}`,
     u.is_active ? statusPill("confirmed").replace("confirmed", "active") : '<span class="pill bad">disabled</span>',
     `<button class="btn small toggle-active" data-id="${u.id}" data-active="${u.is_active}">${u.is_active ? "Disable" : "Enable"}</button>`]));
   $$(".role-sel").forEach((s) => s.addEventListener("change", async () => {
@@ -1688,7 +1719,6 @@ async function loadAdmin() {
   $$(".toggle-active").forEach((b) => b.addEventListener("click", async () => {
     try { await api(`/api/users/${b.dataset.id}`, { method: "PATCH", body: { is_active: b.dataset.active !== "true" } }); loadAdmin(); } catch (e) { toast(e.message, true); }
   }));
-  $("#activity-table").innerHTML = table(["When", "User", "Action", "Target", "Detail", "IP", "Device location"], log.map((a) => [new Date(a.created_at).toLocaleString(), esc(a.user_email || "—"), esc(a.action), esc(a.target || ""), esc(a.detail || ""), ipLink(a.ip), mapLink(a.latitude, a.longitude, a.accuracy_m)]));
 }
 $("#user-form").addEventListener("submit", async (e) => {
   e.preventDefault();

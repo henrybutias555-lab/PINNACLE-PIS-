@@ -377,3 +377,8 @@ mark { background: #f6e27a; color: #1c2430; padding: 0 .1em; border-radius: 2px;
 @media (max-width: 700px) { .dash-banner { height: 120px; background-position: 15% 30%; } }
 @media (prefers-reduced-motion: reduce) { .login-wrap { background-attachment: scroll; } }
 @media (max-width: 700px) { .login-wrap { background-attachment: scroll; } }
+
+.users-bar { align-items: center; flex-wrap: wrap; gap: .5rem; margin-bottom: .5rem; }
+.users-bar #online-now { margin: 0; }
+.sort-users { flex-direction: row; align-items: center; gap: .4rem; }
+.new-pill { background: color-mix(in srgb, var(--brand-2) 25%, transparent); color: var(--text); }

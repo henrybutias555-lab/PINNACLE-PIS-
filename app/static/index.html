@@ -224,7 +224,11 @@
             <label>Role<select name="role"><option value="viewer">Viewer</option><option value="junior">Junior Surveyor</option><option value="senior">Senior Surveyor</option><option value="admin">Admin</option></select></label>
             <div class="filter-actions"><button class="btn primary" type="submit">Create</button></div>
           </form>
-          <p id="online-now"></p>
+          <div class="row between users-bar"><p id="online-now"></p>
+            <label class="sort-users">Sort by<select id="users-sort">
+              <option value="recent">Most recently active</option><option value="least">Least recently active</option>
+              <option value="newest">Newest accounts</option><option value="oldest">Oldest accounts</option>
+              <option value="name">Name A–Z</option></select></label></div>
           <div id="users-table"></div>
         </div>
         <div class="card"><h3>Activity log</h3><div id="activity-table" class="scroll"></div></div>
