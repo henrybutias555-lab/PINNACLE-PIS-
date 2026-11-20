@@ -274,7 +274,7 @@ def _setup_page(problems: list[str]) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>PIS setup required</title>
 <style>body{{font-family:system-ui,sans-serif;max-width:640px;margin:3rem auto;padding:0 16px;line-height:1.5;
 color:#1c2430;background:#f4f6f9}}code{{background:#e8f1f3;padding:0 .3em;border-radius:4px}}
-h1{{color:#0f4c5c}}</style></head><body>
+h1{{color:#0a2a66}}</style></head><body>
 <h1>Pinnacle Intelligence System &mdash; setup required</h1>
 <p>The app is deployed but needs these settings before it can run safely. Add them in your host's
 environment settings (Render: <b>Service &rarr; Environment</b>; Vercel: <b>Project &rarr; Settings &rarr;
